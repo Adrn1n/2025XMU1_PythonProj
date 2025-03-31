@@ -1,5 +1,7 @@
+__pycache__/
 **TEMP**
 **TMP**
 **temp**
 **tmp**
-cache/*
+**/cache/*
+**/config/*
