@@ -9,20 +9,32 @@ async def scrape_baidu(
     query: str,
     headers: dict,
     cookies: dict,
+    proxies: list[str] = None,
+    use_proxy_for_search: bool = False,
     print_to_console: bool = True,
-    semaphore_limit: int = 10,
-    fetch_realURL_timeout: int = 3,
-    no_a_titleTag_stripN: int = 50,
-    delay_between_requests: int = 5,
+    semaphore_limit: int = 25,
+    fetch_real_url_timeout: int = 3,
+    fetch_real_url_retries: int = 0,
+    fetch_real_url_min_retries_sleep: float = 0.5,
+    fetch_real_url_max_retries_sleep: float = 1,
+    fetch_real_url_max_redirects: int = 5,
+    no_a_title_tag_strip_n: int = 50,
+    min_delay_between_requests: float = 0.1,
+    max_delay_between_requests: float = 1,
 ):
     url = "https://www.baidu.com/s"
     params = {"wd": query}
     semaphore = asyncio.Semaphore(semaphore_limit)
 
     async with aiohttp.ClientSession(cookies=cookies) as session:
-        await asyncio.sleep(random.uniform(2, delay_between_requests))
+        await asyncio.sleep(
+            random.uniform(min_delay_between_requests, max_delay_between_requests)
+        )
+        search_proxy = (
+            random.choice(proxies) if proxies and use_proxy_for_search else None
+        )
         async with session.get(
-            url, headers=headers, params=params, proxy=None
+            url, headers=headers, params=params, proxy=search_proxy
         ) as response:
             if response.status == 200:
                 text = await response.text()
@@ -41,7 +53,7 @@ async def scrape_baidu(
                     title = (
                         title_tag.find("a").get_text(strip=True)
                         if title_tag and title_tag.find("a")
-                        else result.get_text(strip=True)[:no_a_titleTag_stripN]
+                        else result.get_text(strip=True)[:no_a_title_tag_strip_n]
                     )
                     main_link = (
                         title_tag.find("a")["href"]
@@ -56,7 +68,6 @@ async def scrape_baidu(
                         continue
                     seen_entries.add(entry_key)
 
-                    # Initialize related_links with content field
                     related_links = [
                         {
                             "text": a.get_text(strip=True),
@@ -67,7 +78,6 @@ async def scrape_baidu(
                         if a.get_text(strip=True)
                     ]
 
-                    # Extract main link content
                     main_link_content = ""
                     if "result-op" in result.get("class", []):
                         desc = result.find(class_=lambda x: x and "description" in x)
@@ -101,8 +111,13 @@ async def scrape_baidu(
                         link,
                         headers,
                         cookies,
+                        proxies,
                         semaphore,
-                        fetch_realURL_timeout,
+                        timeout=fetch_real_url_timeout,
+                        retries=fetch_real_url_retries,
+                        min_retries_sleep=fetch_real_url_min_retries_sleep,
+                        max_retries_sleep=fetch_real_url_max_retries_sleep,
+                        max_redirects=fetch_real_url_max_redirects,
                     )
                     for link in baidu_links
                 ]
@@ -111,7 +126,17 @@ async def scrape_baidu(
                 for entry in data:
                     related_tasks = [
                         fetch_real_url(
-                            session, link["href"], headers, cookies, semaphore
+                            session,
+                            link["href"],
+                            headers,
+                            cookies,
+                            proxies,
+                            semaphore,
+                            timeout=fetch_real_url_timeout,
+                            retries=fetch_real_url_retries,
+                            min_retries_sleep=fetch_real_url_min_retries_sleep,
+                            max_retries_sleep=fetch_real_url_max_retries_sleep,
+                            max_redirects=fetch_real_url_max_redirects,
                         )
                         for link in entry["related_links"]
                     ]
@@ -121,13 +146,12 @@ async def scrape_baidu(
                         else []
                     )
 
-                    # Extract and assign related links content
                     sitelinks = soup.select(".sitelink_summary")
                     buttons = soup.select(".pc-slink-button_1Yzuj a")
                     for i, link in enumerate(entry["related_links"]):
                         content = ""
                         for sl in sitelinks:
-                            if sl.find("a")["href"] == link["href"]:
+                            if sl.find("a") and sl.find("a")["href"] == link["href"]:
                                 p = sl.find("p")
                                 content = p.get_text(strip=True) if p else ""
                                 break
