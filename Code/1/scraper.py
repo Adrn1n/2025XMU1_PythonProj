@@ -56,15 +56,40 @@ async def scrape_baidu(
                         continue
                     seen_entries.add(entry_key)
 
+                    # Initialize related_links with content field
                     related_links = [
-                        {"text": a.get_text(strip=True), "href": a["href"]}
+                        {
+                            "text": a.get_text(strip=True),
+                            "href": a["href"],
+                            "content": "",
+                        }
                         for a in result.find_all("a", href=True)
                         if a.get_text(strip=True)
                     ]
+
+                    # Extract main link content
+                    main_link_content = ""
+                    if "result-op" in result.get("class", []):
+                        desc = result.find(class_=lambda x: x and "description" in x)
+                        main_link_content = desc.get_text(strip=True) if desc else ""
+                    elif "result" in result.get("class", []):
+                        content = result.find(
+                            class_=lambda x: x and "content" in x
+                        ) or result.find("span", class_="c-line-clamp2")
+                        main_link_content = (
+                            content.get_text(strip=True) if content else ""
+                        )
+                    else:
+                        content = result.find("span", class_="c-line-clamp2")
+                        main_link_content = (
+                            content.get_text(strip=True) if content else ""
+                        )
+
                     data.append(
                         {
                             "title": title,
                             "main_link": None,
+                            "main_link_content": main_link_content,
                             "related_links": related_links,
                         }
                     )
@@ -95,17 +120,37 @@ async def scrape_baidu(
                         if related_tasks
                         else []
                     )
-                    for link, real_url in zip(
-                        entry["related_links"], real_related_links
-                    ):
-                        link["href"] = real_url
+
+                    # Extract and assign related links content
+                    sitelinks = soup.select(".sitelink_summary")
+                    buttons = soup.select(".pc-slink-button_1Yzuj a")
+                    for i, link in enumerate(entry["related_links"]):
+                        content = ""
+                        for sl in sitelinks:
+                            if sl.find("a")["href"] == link["href"]:
+                                p = sl.find("p")
+                                content = p.get_text(strip=True) if p else ""
+                                break
+                        if not content:
+                            for btn in buttons:
+                                if btn["href"] == link["href"]:
+                                    content = btn.get_text(strip=True)
+                                    break
+                        if not content:
+                            content = link["text"] if link["text"] else ""
+                        link["content"] = content
+                        link["href"] = real_related_links[i]
+
                     entry["main_link"] = real_links[data.index(entry)]
 
                     if print_to_console:
                         print(f"标题: {entry['title']}")
                         print(f"主链接: {entry['main_link']}")
+                        print(f"主链接内容: {entry['main_link_content']}")
                         for rel_link in entry["related_links"]:
-                            print(f"相关链接: {rel_link['text']} -> {rel_link['href']}")
+                            print(
+                                f"相关链接: {rel_link['text']} -> {rel_link['href']} (内容: {rel_link['content']})"
+                            )
                         print("-" * 50)
 
                 return data

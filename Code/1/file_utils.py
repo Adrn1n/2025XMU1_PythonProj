@@ -8,4 +8,4 @@ async def write_to_file(data, file_path="cache/baidu_search_res.json"):
         os.makedirs(cache_dir)
     with open(file_path, "w", encoding="utf-8") as file:
         json.dump(data, file, ensure_ascii=False, indent=4)
-    print(f"数据已写入 {file_path}")
+    print(f"Baidu search results: {file_path}")
