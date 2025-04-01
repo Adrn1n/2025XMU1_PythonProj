@@ -15,15 +15,15 @@ async def main():
         cookies=COOKIES,
         proxies=PROXY_LIST,
         print_to_console=print_choice,
-        semaphore_limit=25,
+        semaphore_limit=50,
+        min_delay_between_requests=0.1,
+        max_delay_between_requests=0.5,
         fetch_real_url_timeout=3,
         fetch_real_url_retries=0,
-        fetch_real_url_min_retries_sleep=0.5,
-        fetch_real_url_max_retries_sleep=1,
+        fetch_real_url_min_retries_sleep=0.1,
+        fetch_real_url_max_retries_sleep=0.3,
         fetch_real_url_max_redirects=5,
         no_a_title_tag_strip_n=50,
-        min_delay_between_requests=0.1,
-        max_delay_between_requests=1,
     )
 
     if write_choice and data:

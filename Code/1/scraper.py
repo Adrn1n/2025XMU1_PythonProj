@@ -12,15 +12,15 @@ async def scrape_baidu(
     proxies: list[str] = None,
     use_proxy_for_search: bool = False,
     print_to_console: bool = True,
-    semaphore_limit: int = 25,
+    semaphore_limit: int = 50,
+    min_delay_between_requests: float = 0.1,
+    max_delay_between_requests: float = 0.5,
     fetch_real_url_timeout: int = 3,
     fetch_real_url_retries: int = 0,
-    fetch_real_url_min_retries_sleep: float = 0.5,
-    fetch_real_url_max_retries_sleep: float = 1,
+    fetch_real_url_min_retries_sleep: float = 0.1,
+    fetch_real_url_max_retries_sleep: float = 0.3,
     fetch_real_url_max_redirects: int = 5,
     no_a_title_tag_strip_n: int = 50,
-    min_delay_between_requests: float = 0.1,
-    max_delay_between_requests: float = 1,
 ):
     url = "https://www.baidu.com/s"
     params = {"wd": query}
@@ -68,16 +68,6 @@ async def scrape_baidu(
                         continue
                     seen_entries.add(entry_key)
 
-                    related_links = [
-                        {
-                            "text": a.get_text(strip=True),
-                            "href": a["href"],
-                            "content": "",
-                        }
-                        for a in result.find_all("a", href=True)
-                        if a.get_text(strip=True)
-                    ]
-
                     main_link_content = ""
                     if "result-op" in result.get("class", []):
                         desc = result.find(class_=lambda x: x and "description" in x)
@@ -94,6 +84,18 @@ async def scrape_baidu(
                         main_link_content = (
                             content.get_text(strip=True) if content else ""
                         )
+                    baidu_links.append(main_link)
+
+                    related_links = [
+                        {
+                            "text": (
+                                a.get_text(strip=True) if a.get_text(strip=True) else ""
+                            ),
+                            "href": a.get("href", ""),
+                            "content": "",
+                        }
+                        for a in result.find_all("a")
+                    ]
 
                     data.append(
                         {
@@ -103,7 +105,6 @@ async def scrape_baidu(
                             "related_links": related_links,
                         }
                     )
-                    baidu_links.append(main_link)
 
                 tasks = [
                     fetch_real_url(
@@ -124,6 +125,8 @@ async def scrape_baidu(
                 real_links = await asyncio.gather(*tasks, return_exceptions=True)
 
                 for entry in data:
+                    entry["main_link"] = real_links[data.index(entry)]
+
                     related_tasks = [
                         fetch_real_url(
                             session,
@@ -147,7 +150,7 @@ async def scrape_baidu(
                     )
 
                     sitelinks = soup.select(".sitelink_summary")
-                    buttons = soup.select(".pc-slink-button_1Yzuj a")
+                    buttons = soup.select('[class*="button"] a')
                     for i, link in enumerate(entry["related_links"]):
                         content = ""
                         for sl in sitelinks:
@@ -155,17 +158,12 @@ async def scrape_baidu(
                                 p = sl.find("p")
                                 content = p.get_text(strip=True) if p else ""
                                 break
-                        if not content:
-                            for btn in buttons:
-                                if btn["href"] == link["href"]:
-                                    content = btn.get_text(strip=True)
-                                    break
-                        if not content:
-                            content = link["text"] if link["text"] else ""
+                        for btn in buttons:
+                            if btn["href"] == link["href"]:
+                                content = btn.get_text(strip=True)
+                                break
                         link["content"] = content
                         link["href"] = real_related_links[i]
-
-                    entry["main_link"] = real_links[data.index(entry)]
 
                     if print_to_console:
                         print(f"标题: {entry['title']}")

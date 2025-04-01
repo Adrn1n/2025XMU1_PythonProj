@@ -14,8 +14,8 @@ async def fetch_real_url(
     semaphore: asyncio.Semaphore,
     timeout: int = 3,
     retries: int = 0,
-    min_retries_sleep: int = 0.5,
-    max_retries_sleep: int = 1,
+    min_retries_sleep: int = 0.1,
+    max_retries_sleep: int = 0.3,
     max_redirects: int = 5,
 ) -> str:
     if not org_link or not org_link.startswith(("http://", "https://")):

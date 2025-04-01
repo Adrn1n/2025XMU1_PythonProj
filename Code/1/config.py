@@ -4,7 +4,7 @@ import random
 
 UA_FILE = Path("config/ua.txt")
 COOKIES_FILE = Path("config/cookies.txt")
-PROXY_FILE = Path("config/proxy.txt")  # 新增代理文件路径
+PROXY_FILE = Path("config/proxy.txt")
 SEARCH_CACHE_FILE = "cache/baidu_search_res.json"
 
 
