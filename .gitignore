@@ -3,5 +3,6 @@ __pycache__/
 **TMP**
 **temp**
 **tmp**
+**/logs/*
 **/cache/*
 **/config/*
