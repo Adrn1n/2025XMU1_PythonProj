@@ -11,7 +11,6 @@ from utils.file_utils import save_search_results
 from utils.logging_utils import setup_logger, get_log_level_from_string
 from config import (
     HEADERS,
-    COOKIES,
     PROXY_LIST,
     SEARCH_CACHE_FILE,
     LOG_FILE,
@@ -102,7 +101,6 @@ def get_scraper_config(args: argparse.Namespace) -> Dict[str, Any]:
 
     return {
         "headers": HEADERS,
-        "cookies": COOKIES,
         "proxies": PROXY_LIST,
         "use_proxy_for_search": bool(args.proxy),
         "semaphore_limit": config["semaphore_limit"],

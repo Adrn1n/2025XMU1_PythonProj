@@ -16,7 +16,6 @@ class BaseScraper:
     def __init__(
         self,
         headers: Dict[str, str],
-        cookies: Dict[str, str] = None,
         proxies: List[str] = None,
         use_proxy_for_search: bool = False,
         semaphore_limit: int = 25,
@@ -38,8 +37,7 @@ class BaseScraper:
         初始化基础爬虫
 
         Args:
-            headers: 请求头
-            cookies: Cookie
+            headers: 完整的请求头
             proxies: 代理列表
             use_proxy_for_search: 是否为搜索请求使用代理
             semaphore_limit: 并发请求限制
@@ -58,7 +56,6 @@ class BaseScraper:
             log_to_console: 是否将日志输出到控制台
         """
         self.headers = headers
-        self.cookies = cookies or {}
         self.proxies = proxies or []
         self.use_proxy_for_search = use_proxy_for_search
         self.semaphore_limit = semaphore_limit
@@ -96,7 +93,6 @@ class BaseScraper:
         params: Dict[str, str] = None,
         use_proxy: bool = None,
         headers: Dict[str, str] = None,
-        cookies: Dict[str, str] = None,
         timeout: int = None,
         retries: int = None,
     ) -> Optional[str]:
@@ -108,7 +104,6 @@ class BaseScraper:
             params: URL参数
             use_proxy: 是否使用代理
             headers: 自定义请求头
-            cookies: 自定义Cookie
             timeout: 自定义超时时间
             retries: 自定义重试次数
 
@@ -118,7 +113,6 @@ class BaseScraper:
         # 使用传入的参数，或者使用实例默认值
         use_proxy = use_proxy if use_proxy is not None else self.use_proxy_for_search
         headers = headers or self.headers
-        cookies = cookies or self.cookies
         timeout = timeout or self.fetch_timeout
         retries = retries if retries is not None else self.fetch_retries
 
@@ -127,7 +121,7 @@ class BaseScraper:
         if self.stats["start_time"] is None:
             self.stats["start_time"] = time.time()
 
-        async with aiohttp.ClientSession(cookies=cookies) as session:
+        async with aiohttp.ClientSession() as session:
             # 请求前添加随机延迟
             await asyncio.sleep(random.uniform(self.min_delay, self.max_delay))
 

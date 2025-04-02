@@ -10,7 +10,6 @@ async def fetch_real_url(
     session: aiohttp.ClientSession,
     org_link: str,
     headers: dict,
-    cookies: dict,
     proxy_list: List[str],
     semaphore: asyncio.Semaphore,
     timeout: int = 3,
@@ -28,7 +27,6 @@ async def fetch_real_url(
         session: aiohttp会话
         org_link: 原始链接
         headers: 请求头
-        cookies: Cookie
         proxy_list: 代理列表
         semaphore: 控制并发的信号量
         timeout: 请求超时时间(秒)
@@ -61,6 +59,11 @@ async def fetch_real_url(
             logger.debug(f"修正链接格式: {org_link} -> {fixed_link}")
         org_link = fixed_link
 
+    # 确保请求头中不包含Cookie，避免与session中的cookies冲突
+    request_headers = headers.copy()
+    if "Cookie" in request_headers:
+        del request_headers["Cookie"]
+
     async with semaphore:
         current_url = org_link
         redirect_count = 0
@@ -75,10 +78,15 @@ async def fetch_real_url(
                             + (f" 通过代理: {proxy}" if proxy else "")
                         )
 
+                    # 更新Referer为当前URL的域名
+                    if "Referer" in request_headers:
+                        parsed_url = urlparse(current_url)
+                        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+                        request_headers["Referer"] = base_url
+
                     async with session.get(
                         current_url,
-                        headers=headers,
-                        cookies=cookies,
+                        headers=request_headers,
                         allow_redirects=False,  # 手动处理重定向以提高控制
                         timeout=aiohttp.ClientTimeout(total=timeout),
                         proxy=proxy,
@@ -102,7 +110,7 @@ async def fetch_real_url(
                                 )
 
                             # 短暂暂停，避免过快请求
-                            await asyncio.sleep(0.1)
+                            await asyncio.sleep(random.uniform(0.1, 0.3))
                             break
                         else:
                             result = str(response.url)
@@ -187,7 +195,6 @@ async def batch_fetch_urls(
     session: aiohttp.ClientSession,
     urls: List[str],
     headers: dict,
-    cookies: dict,
     proxy_list: List[str],
     semaphore: asyncio.Semaphore,
     timeout: int = 3,
@@ -206,7 +213,6 @@ async def batch_fetch_urls(
         session: aiohttp会话
         urls: 原始URL列表
         headers: 请求头
-        cookies: Cookie
         proxy_list: 代理列表
         semaphore: 控制并发的信号量
         timeout: 请求超时时间(秒)
@@ -221,6 +227,11 @@ async def batch_fetch_urls(
     Returns:
         真实URL列表
     """
+    # 确保请求头中不包含Cookie，避免与session中的cookies冲突
+    request_headers = headers.copy()
+    if "Cookie" in request_headers:
+        del request_headers["Cookie"]
+
     results = []
 
     # 分批处理URL
@@ -235,8 +246,7 @@ async def batch_fetch_urls(
             fetch_real_url(
                 session,
                 url,
-                headers,
-                cookies,
+                request_headers,
                 proxy_list,
                 semaphore,
                 timeout,

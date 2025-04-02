@@ -53,9 +53,25 @@ class URLCache:
     def _clean_expired(self) -> None:
         """清理过期的缓存项"""
         now = time.time()
-        expired_keys = [
-            k for k, (_, timestamp) in self.cache.items() if now - timestamp > self.ttl
-        ]
+        expired_keys = []
+
+        for k, cache_entry in self.cache.items():
+            try:
+                if isinstance(cache_entry, tuple) and len(cache_entry) == 2:
+                    _, timestamp = cache_entry
+                    if now - timestamp > self.ttl:
+                        expired_keys.append(k)
+                else:
+                    # 对于格式不正确的项，将其视为过期项
+                    if self.logger:
+                        self.logger.debug(
+                            f"发现格式不正确的缓存项: {k} -> {cache_entry}, 将其标记为过期"
+                        )
+                    expired_keys.append(k)
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"处理缓存项时出错: {e}, 将其标记为过期: {k}")
+                expired_keys.append(k)
 
         for key in expired_keys:
             del self.cache[key]
@@ -109,16 +125,36 @@ class URLCache:
             self._clean_expired()
 
             # 将缓存转换为可序列化的格式
-            serializable_cache = {
-                url: {"real_url": real_url, "timestamp": timestamp}
-                for url, (real_url, timestamp) in self.cache.items()
-            }
+            serializable_cache = {}
+            for url, cache_entry in self.cache.items():
+                # 处理缓存项可能是元组或者直接是URL字符串的情况
+                if isinstance(cache_entry, tuple) and len(cache_entry) == 2:
+                    real_url, timestamp = cache_entry
+                    serializable_cache[url] = {
+                        "real_url": real_url,
+                        "timestamp": timestamp,
+                    }
+                elif isinstance(cache_entry, str):
+                    # 如果缓存项是字符串，则直接将其作为real_url，并使用当前时间作为timestamp
+                    serializable_cache[url] = {
+                        "real_url": cache_entry,
+                        "timestamp": time.time(),
+                    }
+                else:
+                    # 跳过无法识别的格式
+                    if self.logger:
+                        self.logger.warning(
+                            f"跳过无法识别的缓存项格式: {url} -> {cache_entry}"
+                        )
+                    continue
 
             with file_path.open("w", encoding="utf-8") as f:
                 json.dump(serializable_cache, f, ensure_ascii=False, indent=2)
 
             if self.logger:
-                self.logger.info(f"已将 {len(self.cache)} 个缓存项保存到 {file_path}")
+                self.logger.info(
+                    f"已将 {len(serializable_cache)} 个缓存项保存到 {file_path}"
+                )
             return True
 
         except Exception as e:
