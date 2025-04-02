@@ -20,14 +20,9 @@ class BaiduScraper(BaseScraper):
             self.logger.debug("开始解析搜索结果页面")
 
         try:
-            # 更精确地选择搜索结果容器
             results = soup.select(
                 "div[class*='result'], div[class*='c-container'], article[class*='c-container']"
             )
-            single_cards = soup.select(
-                "div[class*='card-wrapper'], div[class*='single-card']"
-            )
-            results.extend(single_cards)
 
             if self.logger:
                 self.logger.info(f"找到 {len(results)} 个搜索结果")
@@ -38,23 +33,12 @@ class BaiduScraper(BaseScraper):
 
             for i, result in enumerate(results):
                 try:
-                    is_card = any(
-                        card_class in " ".join(result.get("class", []))
-                        for card_class in ["single-card", "card-wrapper"]
+                    search_data = self._process_normal_result(
+                        result, soup, seen_entries, no_a_title_tag_strip_n
                     )
-
-                    if is_card:
-                        card_data = self._process_card_result(result, seen_entries)
-                        if card_data:
-                            data.append(card_data["data"])
-                            baidu_links.extend(card_data["links"])
-                    else:
-                        search_data = self._process_normal_result(
-                            result, soup, seen_entries, no_a_title_tag_strip_n
-                        )
-                        if search_data:
-                            data.append(search_data["data"])
-                            baidu_links.append(search_data["link"])
+                    if search_data:
+                        data.append(search_data["data"])
+                        baidu_links.append(search_data["link"])
 
                 except Exception as e:
                     if self.logger:
@@ -66,70 +50,6 @@ class BaiduScraper(BaseScraper):
             if self.logger:
                 self.logger.error(f"解析结果时出错: {str(e)}")
             return [], []
-
-    def _process_card_result(self, result, seen_entries) -> Optional[Dict]:
-        """处理卡片类型结果"""
-        card_title_tag = result.select_one(
-            "a[class*='card-title'], h3 a, a[class*='title']"
-        )
-        if not card_title_tag:
-            return None
-
-        card_title = card_title_tag.get_text(strip=True)
-        card_main_link = (
-            card_title_tag["href"] if "href" in card_title_tag.attrs else ""
-        )
-
-        if (
-            not card_title
-            or not card_main_link
-            or (card_title, card_main_link) in seen_entries
-        ):
-            return None
-
-        seen_entries.add((card_title, card_main_link))
-
-        content_tag = result.select_one(
-            "div[class*='description'], p[class*='paragraph']"
-        )
-        content = content_tag.get_text(strip=True) if content_tag else ""
-        content = self._clean_content(content)
-
-        related_links = []
-        buttons = result.select("a.link_67K3c button, div.pc-slink-button_1Yzuj a")
-        for button in buttons:
-            link_text = button.get_text(strip=True)
-            link_href = ""
-            parent_a = button.find_parent("a")
-            if parent_a and "href" in parent_a.attrs:
-                link_href = parent_a["href"]
-
-            if (
-                link_text
-                and link_href
-                and not any(
-                    term in link_text.lower()
-                    for term in ["查看更多", "更多相关", "举报", "反馈"]
-                )
-            ):
-                related_links.append(
-                    {"text": link_text, "href": link_href, "content": "", "time": ""}
-                )
-
-        if self.logger:
-            self.logger.debug(f"解析卡片: {card_title} - {card_main_link}")
-
-        return {
-            "data": {
-                "title": card_title,
-                "main_link": None,
-                "main_link_content": content,
-                "main_link_time": self._extract_time(result),
-                "main_link_moreInfo": {},
-                "related_links": related_links,
-            },
-            "links": [card_main_link],
-        }
 
     def _process_normal_result(
         self, result, soup, seen_entries, no_a_title_tag_strip_n
@@ -163,11 +83,9 @@ class BaiduScraper(BaseScraper):
 
         seen_entries.add(entry_key)
 
-        main_link_content = self._clean_content(self._extract_content(result))
+        main_link_content = self._extract_content(result)
         main_link_time = self._extract_time(result)
-        main_link_moreInfo, related_links_data = self._extract_related_links(
-            result, soup, main_link
-        )
+        main_link_moreInfo, related_links_data = self._extract_related_links(result)
 
         if self.logger:
             self.logger.debug(f"解析普通结果: {title} - {main_link}")
@@ -184,24 +102,6 @@ class BaiduScraper(BaseScraper):
             "link": main_link,
         }
 
-    def _clean_content(self, content: str) -> str:
-        """清理内容中的按钮文本等"""
-        if not content:
-            return ""
-
-        buttons = ["详情", "查看更多", "展开", "收起"]
-        clean_content = content
-        for button in buttons:
-            clean_content = clean_content.replace(button, "")
-
-        clean_content = (
-            clean_content.replace("→", "")
-            .replace("↓", "")
-            .replace("↑", "")
-            .replace("", "")
-        )
-        return clean_content.strip()
-
     def _extract_content(self, result) -> str:
         """提取搜索结果内容摘要"""
         if result.select("div[class*='render-item']"):
@@ -209,7 +109,7 @@ class BaiduScraper(BaseScraper):
 
         content_selectors = [
             lambda r: r.select_one("span[class*='content-right']"),
-            lambda r: r.select_one("div.group-sub-abs_N-I8P"),
+            lambda r: r.select_one("div[class*='group-sub-abs']"),
             lambda r: r.select_one("div[class*='description'], div[class*='desc']"),
             lambda r: r.select_one("div[class*='content'], div[class*='cont']"),
             lambda r: r.select_one("span[class*='line-clamp'], span[class*='clamp']"),
@@ -226,47 +126,30 @@ class BaiduScraper(BaseScraper):
 
     def _extract_time(self, result) -> str:
         """提取搜索结果时间信息"""
-        if result.select("div[class*='render-item']"):
-            return ""
-
-        time_selectors = [
-            lambda r: r.select_one("span[class*='time']"),
-            lambda r: r.select_one("span.c-color-gray2"),
-            lambda r: r.select_one("time"),
-        ]
-
-        for selector in time_selectors:
-            time_tag = selector(result)
-            if time_tag:
-                time_text = time_tag.get_text(strip=True)
-                if any(char.isdigit() for char in time_text):
-                    return time_text
-
+        time_tag = result.select_one("span[class*='time'], span.c-color-gray2")
+        if time_tag and any(char.isdigit() for char in time_tag.get_text(strip=True)):
+            return time_tag.get_text(strip=True)
         return ""
 
     def _extract_related_links(
-        self, result, soup, main_link
+        self, result
     ) -> Tuple[Dict[str, str], List[Dict[str, Any]]]:
         """提取相关链接和主链接的额外信息"""
         main_link_moreInfo = {}
         related_links = []
 
         try:
-            sitelink_container = result.select_one(
-                "div[class*='sitelink'], div[class*='sitelink-container']"
-            )
+            # 查找结构化的相关链接容器
+            sitelink_container = result.select_one("div[class*='sitelink']")
             if sitelink_container:
-                summaries = sitelink_container.select(
-                    "div[class*='sitelink-summary'], div[class*='summary']"
-                )
-                for summary in summaries:
+                for summary in sitelink_container.select("div[class*='summary']"):
                     link_tag = summary.select_one("a")
                     if not link_tag or not link_tag.get("href"):
                         continue
                     href = link_tag.get("href")
                     text = link_tag.get_text(strip=True)
 
-                    if not text or "翻译此页" in text:
+                    if not text:
                         continue
 
                     content_tag = summary.select_one(
@@ -278,6 +161,7 @@ class BaiduScraper(BaseScraper):
                         {"text": text, "href": href, "content": content, "time": ""}
                     )
 
+            # 查找新闻项目和其他相关内容
             news_items = result.select(
                 "[class*='render-item'], [class*='group-content'], [class*='blog-item']"
             )
@@ -291,62 +175,56 @@ class BaiduScraper(BaseScraper):
                 href = title_link.get("href")
                 text = title_link.get_text(strip=True)
 
-                link_exists = any(link["href"] == href for link in related_links)
-                if not link_exists and text:
-                    content = self._extract_content(item)
-                    time = self._extract_time(item)
+                if not text:
+                    continue
+
+                content = self._extract_content(item)
+                time = self._extract_time(item)
+                related_links.append(
+                    {"text": text, "href": href, "content": content, "time": time}
+                )
+
+            # 补充遍历其他可能的链接
+            if not related_links:
+                for a in result.find_all("a"):
+                    href = a.get("href", "")
+                    text = a.get_text(strip=True)
+                    if not href or not text:
+                        continue
+
+                    # 检查链接是否已存在
+                    if any(link["href"] == href for link in related_links):
+                        continue
+
+                    # 查找链接周围的内容和时间信息
+                    parent = a.find_parent()
+                    content = ""
+                    time = ""
+
+                    if parent:
+                        time_tag = parent.select_one(
+                            "span[class*='time'], span.c-color-gray2"
+                        )
+                        if time_tag and any(
+                            char.isdigit() for char in time_tag.get_text(strip=True)
+                        ):
+                            time = time_tag.get_text(strip=True)
+
+                        content_tag = parent.select_one(
+                            "div[class*='content'], div[class*='desc'], p[class*='content']"
+                        )
+                        if content_tag:
+                            content = content_tag.get_text(strip=True)
+
                     related_links.append(
                         {"text": text, "href": href, "content": content, "time": time}
                     )
-
-            related_links = [
-                link
-                for link in related_links
-                if link["text"]
-                and len(link["text"]) > 2
-                and not any(
-                    term in link["text"].lower()
-                    for term in ["查看更多", "更多相关", "举报", "反馈", "详情"]
-                )
-            ]
 
             return main_link_moreInfo, related_links
         except Exception as e:
             if self.logger:
                 self.logger.error(f"提取相关链接时出错: {str(e)}")
             return {}, []
-
-    def _find_parent_container(self, element, max_depth=4):
-        """查找元素的包含内容的父容器"""
-        current = element
-        depth = 0
-        content_class_keywords = {
-            "c-container",
-            "result",
-            "content",
-            "item",
-            "card",
-            "render-item",
-        }
-
-        while current and depth < max_depth:
-            parent = current.parent
-            if not parent:
-                break
-            if parent.name in ["div", "article", "section"] and parent.get("class"):
-                parent_classes = " ".join(parent.get("class", []))
-                if any(keyword in parent_classes for keyword in content_class_keywords):
-                    return parent
-            if parent.name == "li":
-                content_elem = parent.select_one(
-                    "p[class*='content'], p[class*='desc'], div[class*='content'], div[class*='desc']"
-                )
-                if content_elem:
-                    return parent
-            current = parent
-            depth += 1
-
-        return current if current != element else None
 
     async def _process_real_urls(
         self,
