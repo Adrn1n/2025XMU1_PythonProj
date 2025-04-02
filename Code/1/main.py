@@ -1,5 +1,6 @@
 import asyncio
 import argparse
+import aiohttp
 import logging
 import sys
 import time
@@ -148,111 +149,134 @@ async def run_search(
 
 async def main():
     """主函数"""
-    args = parse_args()
+    try:
+        args = parse_args()
 
-    # 在命令行参数不足时交互式询问用户
-    save_results = not args.no_save_results
-    log_to_file = not args.no_log_file
-    log_to_console = not args.no_log_console
+        # 在命令行参数不足时交互式询问用户
+        save_results = not args.no_save_results
+        log_to_file = not args.no_log_file
+        log_to_console = not args.no_log_console
 
-    if not args.query:
-        query = input("请输入搜索关键词: ").strip()
-        if not query:
-            print("错误: 未提供搜索关键词，程序退出")
-            return
-        if not args.no_save_results and not args.output:
-            save_choice = input("是否保存搜索结果到文件? (y/[n]): ").strip().lower()
-            save_results = save_choice == "y"
-        if not args.no_log_file and not args.log_file:
-            log_file_choice = input("是否将日志写入文件? (y/[n]): ").strip().lower()
-            log_to_file = log_file_choice == "y"
-        if not args.no_log_console:
-            log_console_choice = (
-                input("是否在控制台显示日志? (y/[n]): ").strip().lower()
-            )
-            log_to_console = log_console_choice == "n"
-    else:
-        query = args.query
-
-    # 设置主日志记录器，确保在所有操作之前完成配置
-    log_file_path = None
-    if log_to_file:
-        log_file_path = args.log_file or LOG_FILE
-        log_file_path.parent.mkdir(parents=True, exist_ok=True)  # 确保日志目录存在
-
-    logger = setup_logger(
-        "baidu_scraper_main",
-        get_log_level_from_string(args.log_level),
-        log_file_path,
-        log_to_console,
-    )
-
-    logger.info("百度搜索结果抓取工具启动")
-
-    # 确定缓存文件路径
-    if args.cache_file:
-        cache_file = Path(args.cache_file)
-    else:
-        cache_dir = Path(args.cache_dir)
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_file = cache_dir / "url_cache.json"
-
-    # 确定输出文件路径
-    output_file = None
-    if save_results:
-        output_file = get_output_file(args, query)
-        logger.info(f"搜索结果将保存到: {output_file}")
-
-    # 创建和配置爬虫
-    scraper_config = get_scraper_config(args, log_to_console, log_file_path)
-    scraper = BaiduScraper(**scraper_config)
-
-    # 清除缓存（如果需要）
-    if args.clear_cache:
-        logger.info("清除URL缓存")
-        scraper.url_cache.clear()
-
-    # 执行搜索
-    results = await run_search(
-        scraper=scraper,
-        query=query,
-        pages=args.pages,
-        cache_file=cache_file if not args.no_cache else None,
-        use_cache=not args.no_cache,
-        logger=logger,
-    )
-
-    # 保存搜索结果
-    if results and save_results and output_file:
-        success = await save_search_results(
-            results=results, file_path=output_file, save_timestamp=True, logger=logger
-        )
-        if success:
-            logger.info(f"搜索结果已保存到: {output_file}")
+        if not args.query:
+            query = input("请输入搜索关键词: ").strip()
+            if not query:
+                print("错误: 未提供搜索关键词，程序退出")
+                return
+            if not args.no_save_results and not args.output:
+                save_choice = input("是否保存搜索结果到文件? (y/[n]): ").strip().lower()
+                save_results = save_choice == "y"
+            if not args.no_log_file and not args.log_file:
+                log_file_choice = input("是否将日志写入文件? (y/[n]): ").strip().lower()
+                log_to_file = log_file_choice == "y"
+            if not args.no_log_console:
+                log_console_choice = (
+                    input("是否在控制台显示日志? (y/[n]): ").strip().lower()
+                )
+                log_to_console = log_console_choice == "y"
         else:
-            logger.error("保存搜索结果失败")
-    elif results and not save_results:
-        logger.info("根据用户设置，搜索结果未保存到文件")
-    else:
-        logger.warning("无搜索结果可保存")
+            query = args.query
 
-    # 输出统计信息
-    stats = scraper.get_stats()
-    logger.info("爬虫统计信息:")
-    logger.info(f"- 总请求数: {stats['requests_total']}")
-    logger.info(f"- 成功请求数: {stats['requests_success']}")
-    logger.info(f"- 失败请求数: {stats['requests_failed']}")
-    logger.info(f"- 成功率: {stats['success_rate']*100:.2f}%")
-    logger.info(f"- 运行时间: {stats['duration']:.2f}秒")
+        # 设置主日志记录器，确保在所有操作之前完成配置
+        log_file_path = None
+        if log_to_file:
+            log_file_path = args.log_file or LOG_FILE
+            log_file_path.parent.mkdir(parents=True, exist_ok=True)  # 确保日志目录存在
 
-    if "cache" in stats:
-        cache_stats = stats["cache"]
-        logger.info("缓存统计信息:")
-        logger.info(f"- 缓存大小: {cache_stats['size']}/{cache_stats['max_size']}")
-        logger.info(f"- 缓存命中: {cache_stats['hits']}")
-        logger.info(f"- 缓存未命中: {cache_stats['misses']}")
-        if cache_stats["hits"] + cache_stats["misses"] > 0:
-            logger.info(f"- 缓存命中率: {cache_stats['hit_rate']*100:.2f}%")
+        logger = setup_logger(
+            "baidu_scraper_main",
+            get_log_level_from_string(args.log_level),
+            log_file_path,
+            log_to_console,
+        )
+
+        logger.info("百度搜索结果抓取工具启动")
+
+        # 确定缓存文件路径
+        if args.cache_file:
+            cache_file = Path(args.cache_file)
+        else:
+            cache_dir = Path(args.cache_dir)
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_file = cache_dir / "url_cache.json"
+
+        # 确定输出文件路径
+        output_file = None
+        if save_results:
+            output_file = get_output_file(args, query)
+            logger.info(f"搜索结果将保存到: {output_file}")
+
+        # 创建和配置爬虫
+        scraper_config = get_scraper_config(args, log_to_console, log_file_path)
+        scraper = BaiduScraper(**scraper_config)
+
+        # 清除缓存（如果需要）
+        if args.clear_cache:
+            logger.info("清除URL缓存")
+            scraper.url_cache.clear()
+
+        # 执行搜索
+        try:
+            results = await run_search(
+                scraper=scraper,
+                query=query,
+                pages=args.pages,
+                cache_file=cache_file if not args.no_cache else None,
+                use_cache=not args.no_cache,
+                logger=logger,
+            )
+        except aiohttp.ClientError as e:
+            logger.error(f"网络请求错误: {e}")
+            # 降级处理 - 尝试使用缓存中的结果
+            if not args.no_cache and cache_file.exists():
+                logger.warning("尝试从缓存加载部分结果...")
+                # 可以添加从缓存恢复的逻辑
+        except Exception as e:
+            logger.error(f"搜索过程中发生未知错误: {str(e)}", exc_info=True)
+            results = []
+
+        # 保存搜索结果
+        if results and save_results and output_file:
+            success = await save_search_results(
+                results=results,
+                file_path=output_file,
+                save_timestamp=True,
+                logger=logger,
+            )
+            if success:
+                logger.info(f"搜索结果已保存到: {output_file}")
+            else:
+                logger.error("保存搜索结果失败")
+        elif results and not save_results:
+            logger.info("根据用户设置，搜索结果未保存到文件")
+        else:
+            logger.warning("无搜索结果可保存")
+
+        # 输出统计信息
+        stats = scraper.get_stats()
+        logger.info("爬虫统计信息:")
+        logger.info(f"- 总请求数: {stats['requests_total']}")
+        logger.info(f"- 成功请求数: {stats['requests_success']}")
+        logger.info(f"- 失败请求数: {stats['requests_failed']}")
+        logger.info(f"- 成功率: {stats['success_rate']*100:.2f}%")
+        logger.info(f"- 运行时间: {stats['duration']:.2f}秒")
+
+        if "cache" in stats:
+            cache_stats = stats["cache"]
+            logger.info("缓存统计信息:")
+            logger.info(f"- 缓存大小: {cache_stats['size']}/{cache_stats['max_size']}")
+            logger.info(f"- 缓存命中: {cache_stats['hits']}")
+            logger.info(f"- 缓存未命中: {cache_stats['misses']}")
+            if cache_stats["hits"] + cache_stats["misses"] > 0:
+                logger.info(f"- 缓存命中率: {cache_stats['hit_rate']*100:.2f}%")
+
+    except Exception as e:
+        print(f"程序执行过程中发生错误: {str(e)}")
+        if logging.getLogger().hasHandlers():
+            logging.getLogger().error(
+                f"程序执行过程中发生错误: {str(e)}", exc_info=True
+            )
+        return 1  # 返回错误代码
+    return 0  # 正常退出
 
 
 if __name__ == "__main__":

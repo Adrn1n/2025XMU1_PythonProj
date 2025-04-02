@@ -43,22 +43,8 @@ class BaiduScraper(BaseScraper):
         self, result, soup, seen_entries, no_a_title_tag_strip_n
     ) -> Optional[Dict]:
         """处理普通搜索结果"""
-        title_tag = result.find(
-            "h3",
-            class_=lambda x: x and any(c in x for c in ["t", "c-title"]) if x else True,
-        ) or result.find(
-            "a", class_=lambda x: x and "title" in x.lower() if x else False
-        )
-
-        title = ""
-        main_link = ""
-
-        if title_tag:
-            a_tag = title_tag.find("a") if title_tag.name != "a" else title_tag
-            if a_tag:
-                title = a_tag.get_text(strip=True)
-                if "href" in a_tag.attrs:
-                    main_link = a_tag["href"]
+        # 优化标题和链接的提取逻辑
+        title, main_link = self._extract_title_and_link(result)
 
         if not title:
             title = result.get_text(strip=True)[:no_a_title_tag_strip_n]
@@ -70,6 +56,7 @@ class BaiduScraper(BaseScraper):
             return None
 
         seen_entries.add(entry_key)
+
         main_link_content = self._extract_content(result)
         main_link_time = self._extract_time(result)
         main_link_moreInfo, related_links_data = self._extract_related_links(result)
@@ -88,6 +75,27 @@ class BaiduScraper(BaseScraper):
             },
             "link": main_link,
         }
+
+    def _extract_title_and_link(self, result) -> Tuple[str, str]:
+        """提取标题和链接"""
+        title_tag = result.find(
+            "h3",
+            class_=lambda x: x and any(c in x for c in ["t", "c-title"]) if x else True,
+        ) or result.find(
+            "a", class_=lambda x: x and "title" in x.lower() if x else False
+        )
+
+        title = ""
+        main_link = ""
+
+        if title_tag:
+            a_tag = title_tag.find("a") if title_tag.name != "a" else title_tag
+            if a_tag:
+                title = a_tag.get_text(strip=True)
+                if "href" in a_tag.attrs:
+                    main_link = a_tag["href"]
+
+        return title, main_link
 
     def _extract_content(self, result) -> str:
         """提取搜索结果内容摘要"""
@@ -216,11 +224,20 @@ class BaiduScraper(BaseScraper):
             baidu_link = baidu_links[i]
             if baidu_link.startswith("/"):
                 baidu_link = f"https://www.baidu.com{baidu_link}"
-            for link in entry.get("related_links", []):
-                if link["href"].startswith("/"):
-                    link["href"] = f"https://www.baidu.com{link['href']}"
+            # 简化相关链接的绝对化
             entry_copy = entry.copy()
             entry_copy["main_link"] = baidu_link
+            entry_copy["related_links"] = [
+                {
+                    **link,
+                    "href": (
+                        f"https://www.baidu.com{link['href']}"
+                        if link["href"].startswith("/")
+                        else link["href"]
+                    ),
+                }
+                for link in entry.get("related_links", [])
+            ]
             processed_data.append(entry_copy)
 
         unique_entries = {}

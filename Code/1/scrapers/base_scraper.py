@@ -95,6 +95,7 @@ class BaseScraper:
         headers: Dict[str, str] = None,
         timeout: int = None,
         retries: int = None,
+        session: Optional[aiohttp.ClientSession] = None,  # 新增参数
     ) -> Optional[str]:
         """
         获取网页内容
@@ -106,6 +107,7 @@ class BaseScraper:
             headers: 自定义请求头
             timeout: 自定义超时时间
             retries: 自定义重试次数
+            session: 可选的会话对象
 
         Returns:
             网页内容或None（请求失败）
@@ -121,7 +123,10 @@ class BaseScraper:
         if self.stats["start_time"] is None:
             self.stats["start_time"] = time.time()
 
-        async with aiohttp.ClientSession() as session:
+        session_provided = session is not None
+        if not session_provided:
+            session = aiohttp.ClientSession()
+        try:
             # 请求前添加随机延迟
             await asyncio.sleep(random.uniform(self.min_delay, self.max_delay))
 
@@ -199,6 +204,9 @@ class BaseScraper:
                     await asyncio.sleep(sleep_time)
 
             return None  # 如果所有重试都失败
+        finally:
+            if not session_provided:
+                await session.close()
 
     def get_stats(self) -> Dict[str, Any]:
         """获取爬虫统计信息"""

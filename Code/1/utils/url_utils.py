@@ -191,6 +191,63 @@ def fix_url(url: str) -> str:
     return url
 
 
+def normalize_url(url: str, strip_params: bool = False) -> str:
+    """
+    规范化URL，使不同形式的相同URL可以匹配
+
+    Args:
+        url: 要规范化的URL
+        strip_params: 是否去除URL参数
+
+    Returns:
+        规范化后的URL
+    """
+    if not url or isinstance(url, Exception):
+        return ""
+
+    try:
+        # 解析URL
+        parsed = urlparse(url)
+
+        # 确保有协议和域名
+        if not parsed.netloc:
+            # 如果是相对路径，则加上默认域名
+            if url.startswith("/"):
+                url = f"https://www.baidu.com{url}"
+                parsed = urlparse(url)
+            else:
+                return url  # 无法解析，返回原始URL
+
+        # 构建规范化的URL
+        scheme = parsed.scheme.lower() or "http"
+        netloc = parsed.netloc.lower()
+
+        # 去掉www前缀
+        if netloc.startswith("www."):
+            netloc = netloc[4:]
+
+        # 删除尾部的斜杠
+        path = parsed.path
+        if path.endswith("/") and len(path) > 1:
+            path = path[:-1]
+
+        # 是否保留参数
+        if strip_params:
+            query = ""
+        else:
+            query = parsed.query
+
+        # 重建URL
+        normalized = f"{scheme}://{netloc}{path}"
+        if query:
+            normalized += f"?{query}"
+
+        return normalized
+    except Exception:
+        # 解析失败时返回原URL
+        return url
+
+
 async def batch_fetch_urls(
     session: aiohttp.ClientSession,
     urls: List[str],
