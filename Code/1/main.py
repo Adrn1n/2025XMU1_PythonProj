@@ -23,8 +23,6 @@ from config import (
 def parse_args() -> argparse.Namespace:
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description="百度搜索结果抓取工具")
-
-    # 基本参数
     parser.add_argument(
         "query", nargs="?", help="搜索关键词（如果未指定，将在运行时提示输入）"
     )
@@ -34,16 +32,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "-o", "--output", type=str, help="输出文件路径（默认：自动生成）"
     )
-
-    # 缓存相关
+    parser.add_argument(
+        "--no-save-results", action="store_true", help="不保存搜索结果到文件"
+    )
     parser.add_argument(
         "--cache-dir", type=str, default=str(CACHE_DIR), help="缓存目录路径"
     )
     parser.add_argument("--cache-file", type=str, help="URL缓存文件路径")
     parser.add_argument("--no-cache", action="store_true", help="不使用URL缓存")
     parser.add_argument("--clear-cache", action="store_true", help="清除现有缓存")
-
-    # 日志相关
     parser.add_argument(
         "--log-level",
         type=str,
@@ -55,8 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-log-console", action="store_true", help="不在控制台显示日志"
     )
-
-    # 性能调优
+    parser.add_argument("--no-log-file", action="store_true", help="不将日志写入文件")
     parser.add_argument(
         "--concurrent",
         type=int,
@@ -72,33 +68,22 @@ def parse_args() -> argparse.Namespace:
         type=int,
         help=f"请求失败重试次数（默认：{DEFAULT_CONFIG['fetch_retries']}）",
     )
-
-    # 代理相关
     parser.add_argument("--proxy", action="store_true", help="为所有请求使用代理")
-
     return parser.parse_args()
 
 
-def get_scraper_config(args: argparse.Namespace) -> Dict[str, Any]:
+def get_scraper_config(
+    args: argparse.Namespace, log_to_console: bool, log_file_path: Optional[Path]
+) -> Dict[str, Any]:
     """根据命令行参数生成爬虫配置"""
     config = DEFAULT_CONFIG.copy()
-
-    # 更新并发数
     if args.concurrent:
         config["semaphore_limit"] = args.concurrent
-
-    # 更新超时时间
     if args.timeout:
         config["fetch_timeout"] = args.timeout
-
-    # 更新重试次数
     if args.retries:
         config["fetch_retries"] = args.retries
-
-    # 处理日志配置
     log_level = get_log_level_from_string(args.log_level)
-    log_file = args.log_file or LOG_FILE
-
     return {
         "headers": HEADERS,
         "proxies": PROXY_LIST,
@@ -114,8 +99,8 @@ def get_scraper_config(args: argparse.Namespace) -> Dict[str, Any]:
         "cache_size": config["cache_size"],
         "enable_logging": True,
         "log_level": log_level,
-        "log_file": log_file,
-        "log_to_console": not args.no_log_console,
+        "log_file": log_file_path,
+        "log_to_console": log_to_console,
     }
 
 
@@ -124,14 +109,11 @@ def get_output_file(args: argparse.Namespace, query: str) -> Path:
     if args.output:
         output_path = Path(args.output)
     else:
-        # 自动生成输出文件名
         safe_query = "".join(c if c.isalnum() else "_" for c in query)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         output_path = (
             Path(args.cache_dir) / f"baidu_search_{safe_query}_{timestamp}.json"
         )
-
-    # 确保输出目录存在
     output_path.parent.mkdir(parents=True, exist_ok=True)
     return output_path
 
@@ -146,7 +128,6 @@ async def run_search(
 ) -> List[Dict[str, Any]]:
     """执行搜索并返回结果"""
     try:
-        # 执行搜索
         logger.info(f"开始搜索 '{query}'，页数：{pages}")
         results = await scraper.scrape(
             query=query,
@@ -155,10 +136,8 @@ async def run_search(
             cache_to_file=use_cache,
             cache_file=cache_file,
         )
-
         logger.info(f"搜索完成，获取到 {len(results)} 个结果")
         return results
-
     except KeyboardInterrupt:
         logger.warning("搜索被用户中断")
         return []
@@ -169,26 +148,46 @@ async def run_search(
 
 async def main():
     """主函数"""
-    # 解析命令行参数
     args = parse_args()
 
-    # 设置主日志记录器
+    # 在命令行参数不足时交互式询问用户
+    save_results = not args.no_save_results
+    log_to_file = not args.no_log_file
+    log_to_console = not args.no_log_console
+
+    if not args.query:
+        query = input("请输入搜索关键词: ").strip()
+        if not query:
+            print("错误: 未提供搜索关键词，程序退出")
+            return
+        if not args.no_save_results and not args.output:
+            save_choice = input("是否保存搜索结果到文件? (y/[n]): ").strip().lower()
+            save_results = save_choice == "y"
+        if not args.no_log_file and not args.log_file:
+            log_file_choice = input("是否将日志写入文件? (y/[n]): ").strip().lower()
+            log_to_file = log_file_choice == "y"
+        if not args.no_log_console:
+            log_console_choice = (
+                input("是否在控制台显示日志? (y/[n]): ").strip().lower()
+            )
+            log_to_console = log_console_choice == "n"
+    else:
+        query = args.query
+
+    # 设置主日志记录器，确保在所有操作之前完成配置
+    log_file_path = None
+    if log_to_file:
+        log_file_path = args.log_file or LOG_FILE
+        log_file_path.parent.mkdir(parents=True, exist_ok=True)  # 确保日志目录存在
+
     logger = setup_logger(
         "baidu_scraper_main",
         get_log_level_from_string(args.log_level),
-        args.log_file or LOG_FILE,
-        not args.no_log_console,
+        log_file_path,
+        log_to_console,
     )
 
     logger.info("百度搜索结果抓取工具启动")
-
-    # 获取搜索关键词
-    query = args.query
-    if not query:
-        query = input("请输入搜索关键词: ").strip()
-        if not query:
-            logger.error("未提供搜索关键词，程序退出")
-            return
 
     # 确定缓存文件路径
     if args.cache_file:
@@ -199,11 +198,13 @@ async def main():
         cache_file = cache_dir / "url_cache.json"
 
     # 确定输出文件路径
-    output_file = get_output_file(args, query)
-    logger.info(f"搜索结果将保存到: {output_file}")
+    output_file = None
+    if save_results:
+        output_file = get_output_file(args, query)
+        logger.info(f"搜索结果将保存到: {output_file}")
 
     # 创建和配置爬虫
-    scraper_config = get_scraper_config(args)
+    scraper_config = get_scraper_config(args, log_to_console, log_file_path)
     scraper = BaiduScraper(**scraper_config)
 
     # 清除缓存（如果需要）
@@ -222,15 +223,16 @@ async def main():
     )
 
     # 保存搜索结果
-    if results:
+    if results and save_results and output_file:
         success = await save_search_results(
             results=results, file_path=output_file, save_timestamp=True, logger=logger
         )
-
         if success:
             logger.info(f"搜索结果已保存到: {output_file}")
         else:
             logger.error("保存搜索结果失败")
+    elif results and not save_results:
+        logger.info("根据用户设置，搜索结果未保存到文件")
     else:
         logger.warning("无搜索结果可保存")
 
@@ -254,10 +256,8 @@ async def main():
 
 
 if __name__ == "__main__":
-    # 处理Windows事件循环策略
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
