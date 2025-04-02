@@ -20,6 +20,7 @@ class BaiduScraper(BaseScraper):
             self.logger.debug("开始解析搜索结果页面")
 
         try:
+            # 更精确地选择搜索结果容器
             results = soup.select(
                 "div[class*='result'], div[class*='c-container'], article[class*='c-container']"
             )
@@ -34,176 +35,31 @@ class BaiduScraper(BaseScraper):
             data = []
             baidu_links = []
             seen_entries = set()
-            card_related_links = {}
 
             for i, result in enumerate(results):
-                if any(
-                    card_class in " ".join(result.get("class", []))
-                    for card_class in ["single-card", "card-wrapper"]
-                ):
-                    card_id = result.get("id", f"card_{i}")
-                    card_title_tag = result.select_one(
-                        "a[class*='card-title'], h3 a, a[class*='title']"
-                    )
-                    card_title = (
-                        card_title_tag.get_text(strip=True) if card_title_tag else ""
-                    )
-                    card_main_link = (
-                        card_title_tag["href"]
-                        if card_title_tag and "href" in card_title_tag.attrs
-                        else ""
+                try:
+                    is_card = any(
+                        card_class in " ".join(result.get("class", []))
+                        for card_class in ["single-card", "card-wrapper"]
                     )
 
-                    if (
-                        card_title
-                        and card_main_link
-                        and (card_title, card_main_link) not in seen_entries
-                    ):
-                        seen_entries.add((card_title, card_main_link))
-                        baidu_links.append(card_main_link)
-                        card_related_links[card_id] = []
-
-                        data.append(
-                            {
-                                "title": card_title,
-                                "main_link": None,
-                                "main_link_content": self._extract_content(result),
-                                "main_link_time": self._extract_time(result),
-                                "main_link_moreInfo": {},
-                                "related_links": [],
-                            }
+                    if is_card:
+                        card_data = self._process_card_result(result, seen_entries)
+                        if card_data:
+                            data.append(card_data["data"])
+                            baidu_links.extend(card_data["links"])
+                    else:
+                        search_data = self._process_normal_result(
+                            result, soup, seen_entries, no_a_title_tag_strip_n
                         )
-                        if self.logger:
-                            self.logger.debug(
-                                f"解析卡片: {card_title} - {card_main_link}"
-                            )
+                        if search_data:
+                            data.append(search_data["data"])
+                            baidu_links.append(search_data["link"])
 
-                    sub_items = result.select(
-                        "div[class*='group-content'], div[class*='render-item'], div[class*='c-row']"
-                    )
-                    for sub_item in sub_items:
-                        if sub_item == result:
-                            continue
-
-                        title_tag = sub_item.select_one(
-                            "a[class*='title'], a[class*='sub-title'], h3 a"
-                        )
-                        if not title_tag:
-                            continue
-
-                        title = title_tag.get_text(strip=True)
-                        link = title_tag["href"] if "href" in title_tag.attrs else ""
-
-                        if not title or not link or (title, link) in seen_entries:
-                            continue
-
-                        seen_entries.add((title, link))
-                        baidu_links.append(link)
-
-                        content = ""
-                        content_tag = sub_item.select_one(
-                            "div[class*='abs'], div[class*='content'], p"
-                        )
-                        if content_tag:
-                            content = content_tag.get_text(strip=True)
-
-                        time_text = ""
-                        time_tag = sub_item.select_one(
-                            "span[class*='time'], span.c-color-gray2"
-                        )
-                        if time_tag:
-                            time_text = time_tag.get_text(strip=True)
-
-                        if not card_title and len(data) == 0:
-                            data.append(
-                                {
-                                    "title": title,
-                                    "main_link": None,
-                                    "main_link_content": content,
-                                    "main_link_time": time_text,
-                                    "main_link_moreInfo": {},
-                                    "related_links": [],
-                                }
-                            )
-                        else:
-                            if card_id in card_related_links:
-                                card_related_links[card_id].append(
-                                    {
-                                        "text": title,
-                                        "href": link,
-                                        "content": content,
-                                        "time": time_text,
-                                    }
-                                )
-                            elif data:
-                                if "related_links" not in data[-1]:
-                                    data[-1]["related_links"] = []
-                                data[-1]["related_links"].append(
-                                    {
-                                        "text": title,
-                                        "href": link,
-                                        "content": content,
-                                        "time": time_text,
-                                    }
-                                )
-                else:
-                    title_tag = result.find(
-                        "h3",
-                        class_=lambda x: (
-                            x and any(c in x for c in ["t", "c-title"]) if x else True
-                        ),
-                    ) or result.find(
-                        "a", class_=lambda x: x and "title" in x.lower() if x else False
-                    )
-
-                    title = ""
-                    main_link = ""
-
-                    if title_tag:
-                        a_tag = (
-                            title_tag.find("a") if title_tag.name != "a" else title_tag
-                        )
-                        if a_tag:
-                            title = a_tag.get_text(strip=True)
-                            if "href" in a_tag.attrs:
-                                main_link = a_tag["href"]
-
-                    if not title:
-                        title = result.get_text(strip=True)[:no_a_title_tag_strip_n]
-
-                    entry_key = (title, main_link)
-                    if entry_key in seen_entries or not main_link:
-                        if self.logger and title:
-                            self.logger.debug(f"跳过重复结果: {title}")
-                        continue
-
-                    seen_entries.add(entry_key)
-                    main_link_content = self._extract_content(result)
-                    main_link_time = self._extract_time(result)
-                    baidu_links.append(main_link)
-
+                except Exception as e:
                     if self.logger:
-                        self.logger.debug(f"解析结果 #{i+1}: {title} - {main_link}")
-
-                    main_link_moreInfo, related_links_data = (
-                        self._extract_related_links(result, soup, main_link)
-                    )
-
-                    data.append(
-                        {
-                            "title": title,
-                            "main_link": None,
-                            "main_link_content": main_link_content,
-                            "main_link_time": main_link_time,
-                            "main_link_moreInfo": main_link_moreInfo,
-                            "related_links": related_links_data,
-                        }
-                    )
-
-            for i, entry in enumerate(data):
-                for card_id, related_links in card_related_links.items():
-                    if i == list(card_related_links.keys()).index(card_id):
-                        entry["related_links"].extend(related_links)
+                        self.logger.error(f"处理结果 #{i+1} 时出错: {str(e)}")
+                    continue
 
             return data, baidu_links
         except Exception as e:
@@ -211,21 +67,154 @@ class BaiduScraper(BaseScraper):
                 self.logger.error(f"解析结果时出错: {str(e)}")
             return [], []
 
+    def _process_card_result(self, result, seen_entries) -> Optional[Dict]:
+        """处理卡片类型结果"""
+        card_title_tag = result.select_one(
+            "a[class*='card-title'], h3 a, a[class*='title']"
+        )
+        if not card_title_tag:
+            return None
+
+        card_title = card_title_tag.get_text(strip=True)
+        card_main_link = (
+            card_title_tag["href"] if "href" in card_title_tag.attrs else ""
+        )
+
+        if (
+            not card_title
+            or not card_main_link
+            or (card_title, card_main_link) in seen_entries
+        ):
+            return None
+
+        seen_entries.add((card_title, card_main_link))
+
+        content_tag = result.select_one(
+            "div[class*='description'], p[class*='paragraph']"
+        )
+        content = content_tag.get_text(strip=True) if content_tag else ""
+        content = self._clean_content(content)
+
+        related_links = []
+        buttons = result.select("a.link_67K3c button, div.pc-slink-button_1Yzuj a")
+        for button in buttons:
+            link_text = button.get_text(strip=True)
+            link_href = ""
+            parent_a = button.find_parent("a")
+            if parent_a and "href" in parent_a.attrs:
+                link_href = parent_a["href"]
+
+            if (
+                link_text
+                and link_href
+                and not any(
+                    term in link_text.lower()
+                    for term in ["查看更多", "更多相关", "举报", "反馈"]
+                )
+            ):
+                related_links.append(
+                    {"text": link_text, "href": link_href, "content": "", "time": ""}
+                )
+
+        if self.logger:
+            self.logger.debug(f"解析卡片: {card_title} - {card_main_link}")
+
+        return {
+            "data": {
+                "title": card_title,
+                "main_link": None,
+                "main_link_content": content,
+                "main_link_time": self._extract_time(result),
+                "main_link_moreInfo": {},
+                "related_links": related_links,
+            },
+            "links": [card_main_link],
+        }
+
+    def _process_normal_result(
+        self, result, soup, seen_entries, no_a_title_tag_strip_n
+    ) -> Optional[Dict]:
+        """处理普通搜索结果"""
+        title_tag = result.find(
+            "h3",
+            class_=lambda x: x and any(c in x for c in ["t", "c-title"]) if x else True,
+        ) or result.find(
+            "a", class_=lambda x: x and "title" in x.lower() if x else False
+        )
+
+        title = ""
+        main_link = ""
+
+        if title_tag:
+            a_tag = title_tag.find("a") if title_tag.name != "a" else title_tag
+            if a_tag:
+                title = a_tag.get_text(strip=True)
+                if "href" in a_tag.attrs:
+                    main_link = a_tag["href"]
+
+        if not title:
+            title = result.get_text(strip=True)[:no_a_title_tag_strip_n]
+
+        entry_key = (title, main_link)
+        if entry_key in seen_entries or not main_link:
+            if self.logger and title:
+                self.logger.debug(f"跳过重复结果: {title}")
+            return None
+
+        seen_entries.add(entry_key)
+
+        main_link_content = self._clean_content(self._extract_content(result))
+        main_link_time = self._extract_time(result)
+        main_link_moreInfo, related_links_data = self._extract_related_links(
+            result, soup, main_link
+        )
+
+        if self.logger:
+            self.logger.debug(f"解析普通结果: {title} - {main_link}")
+
+        return {
+            "data": {
+                "title": title,
+                "main_link": None,
+                "main_link_content": main_link_content,
+                "main_link_time": main_link_time,
+                "main_link_moreInfo": main_link_moreInfo,
+                "related_links": related_links_data,
+            },
+            "link": main_link,
+        }
+
+    def _clean_content(self, content: str) -> str:
+        """清理内容中的按钮文本等"""
+        if not content:
+            return ""
+
+        buttons = ["详情", "查看更多", "展开", "收起"]
+        clean_content = content
+        for button in buttons:
+            clean_content = clean_content.replace(button, "")
+
+        clean_content = (
+            clean_content.replace("→", "")
+            .replace("↓", "")
+            .replace("↑", "")
+            .replace("", "")
+        )
+        return clean_content.strip()
+
     def _extract_content(self, result) -> str:
-        """Extract search result content summary"""
+        """提取搜索结果内容摘要"""
         if result.select("div[class*='render-item']"):
             return ""
 
-        content_tag = result.select_one("span[class*='content-right']")
-        if content_tag:
-            return content_tag.get_text(strip=True)
-
         content_selectors = [
+            lambda r: r.select_one("span[class*='content-right']"),
             lambda r: r.select_one("div.group-sub-abs_N-I8P"),
             lambda r: r.select_one("div[class*='description'], div[class*='desc']"),
             lambda r: r.select_one("div[class*='content'], div[class*='cont']"),
             lambda r: r.select_one("span[class*='line-clamp'], span[class*='clamp']"),
             lambda r: r.select_one("div[class*='abs'], p[class*='abs']"),
+            lambda r: r.select_one("div[class*='ala-container'] p[class*='paragraph']"),
         ]
 
         for selector in content_selectors:
@@ -236,7 +225,7 @@ class BaiduScraper(BaseScraper):
         return ""
 
     def _extract_time(self, result) -> str:
-        """Extract search result time information"""
+        """提取搜索结果时间信息"""
         if result.select("div[class*='render-item']"):
             return ""
 
@@ -258,7 +247,7 @@ class BaiduScraper(BaseScraper):
     def _extract_related_links(
         self, result, soup, main_link
     ) -> Tuple[Dict[str, str], List[Dict[str, Any]]]:
-        """Extract related links and additional info for the main link"""
+        """提取相关链接和主链接的额外信息"""
         main_link_moreInfo = {}
         related_links = []
 
@@ -267,25 +256,27 @@ class BaiduScraper(BaseScraper):
                 "div[class*='sitelink'], div[class*='sitelink-container']"
             )
             if sitelink_container:
-                sitelink_summaries = sitelink_container.select(
+                summaries = sitelink_container.select(
                     "div[class*='sitelink-summary'], div[class*='summary']"
                 )
-                for summary in sitelink_summaries:
+                for summary in summaries:
                     link_tag = summary.select_one("a")
                     if not link_tag or not link_tag.get("href"):
                         continue
                     href = link_tag.get("href")
                     text = link_tag.get_text(strip=True)
-                    content = ""
+
+                    if not text or "翻译此页" in text:
+                        continue
+
                     content_tag = summary.select_one(
                         "p.c-color-text, p[class*='line-clamp']"
                     )
-                    if content_tag:
-                        content = content_tag.get_text(strip=True)
-                    if text and href and "翻译此页" not in text:
-                        related_links.append(
-                            {"text": text, "href": href, "content": content, "time": ""}
-                        )
+                    content = content_tag.get_text(strip=True) if content_tag else ""
+
+                    related_links.append(
+                        {"text": text, "href": href, "content": content, "time": ""}
+                    )
 
             news_items = result.select(
                 "[class*='render-item'], [class*='group-content'], [class*='blog-item']"
@@ -294,97 +285,32 @@ class BaiduScraper(BaseScraper):
                 title_link = item.select_one(
                     "a[class*='title'], a[class*='sub-title'], a.c-font-medium"
                 )
-                if not title_link:
+                if not title_link or not title_link.get("href"):
                     continue
-                href = title_link.get("href", "")
-                if not href:
-                    continue
+
+                href = title_link.get("href")
                 text = title_link.get_text(strip=True)
-                content = self._extract_content(item)
-                time = self._extract_time(item)
 
-                link_exists = False
-                for link in related_links:
-                    if link["href"] == href:
-                        link_exists = True
-                        if content and (
-                            not link["content"] or len(content) > len(link["content"])
-                        ):
-                            link["content"] = content
-                        if time and not link["time"]:
-                            link["time"] = time
-                        break
-
+                link_exists = any(link["href"] == href for link in related_links)
                 if not link_exists and text:
+                    content = self._extract_content(item)
+                    time = self._extract_time(item)
                     related_links.append(
                         {"text": text, "href": href, "content": content, "time": time}
                     )
 
-            source_groups = soup.select(
-                "div[class*='source-wrapper'], div[class*='source-group']"
-            )
-            for source_group in source_groups:
-                link = source_group.find("a")
-                if not link or not link.get("href"):
-                    continue
-                href = link.get("href")
-                time = self._extract_time(source_group)
-                if time:
-                    for link_data in related_links:
-                        if link_data["href"] == href and not link_data["time"]:
-                            link_data["time"] = time
-                            break
-
-            for a in result.find_all("a"):
-                href = a.get("href", "")
-                if href == main_link:
-                    text = a.get_text(strip=True)
-                    if not text:
-                        continue
-                    content = ""
-                    containers = soup.select(
-                        "div[class*='summary'], div[class*='abs'], div[class*='content'], div[class*='c-color-text']"
-                    )
-                    for container in containers:
-                        container_link = container.find("a", href=href)
-                        if container_link:
-                            current_content = container.get_text(strip=True)
-                            from bs4.element import Comment
-
-                            for comment in container.find_all(
-                                string=lambda text: isinstance(text, Comment)
-                            ):
-                                if "s-text" in comment:
-                                    comment_text = comment.strip()
-                                    if comment_text.startswith("s-text"):
-                                        comment_text = comment_text[6:]
-                                    if comment_text.endswith("/s-text"):
-                                        comment_text = comment_text[:-7]
-                                    if comment_text and len(comment_text.strip()) > len(
-                                        current_content
-                                    ):
-                                        current_content = comment_text.strip()
-                            if len(current_content) > len(content):
-                                content = current_content
-                    if text or content:
-                        if text in main_link_moreInfo:
-                            if len(content) > len(main_link_moreInfo[text]):
-                                main_link_moreInfo[text] = content
-                        else:
-                            main_link_moreInfo[text] = content
-
-            related_links_final = [
+            related_links = [
                 link
                 for link in related_links
                 if link["text"]
                 and len(link["text"]) > 2
                 and not any(
                     term in link["text"].lower()
-                    for term in ["查看更多", "更多相关", "举报", "反馈"]
+                    for term in ["查看更多", "更多相关", "举报", "反馈", "详情"]
                 )
             ]
 
-            return main_link_moreInfo, related_links_final
+            return main_link_moreInfo, related_links
         except Exception as e:
             if self.logger:
                 self.logger.error(f"提取相关链接时出错: {str(e)}")
@@ -556,21 +482,7 @@ class BaiduScraper(BaseScraper):
                     if isinstance(rel_url, Exception) or not rel_url:
                         continue
                     normalized_rel_url = self._normalize_url(rel_url)
-                    if not normalized_rel_url:
-                        continue
-                    if normalized_rel_url == url:
-                        for k, v in {
-                            link.get("text", ""): link.get("content", "")
-                        }.items():
-                            if k and k in entry.get("main_link_moreInfo", {}):
-                                if len(v) > len(entry["main_link_moreInfo"][k]):
-                                    entry["main_link_moreInfo"][k] = v
-                            elif k:
-                                if "main_link_moreInfo" not in entry:
-                                    entry["main_link_moreInfo"] = {}
-                                entry["main_link_moreInfo"][k] = v
-                        if link.get("time") and not entry.get("main_link_time"):
-                            entry["main_link_time"] = link["time"]
+                    if not normalized_rel_url or normalized_rel_url == url:
                         continue
                     if normalized_rel_url not in processed_related_links:
                         processed_related_links.add(normalized_rel_url)
