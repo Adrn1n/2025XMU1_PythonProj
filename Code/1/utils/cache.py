@@ -1,15 +1,18 @@
-import time
-from typing import Dict, Optional, Any, List, Tuple
-import json
-from pathlib import Path
+from typing import Dict, Optional, Any, Tuple
 import logging
+import time
+from pathlib import Path
+import json
 
 
 class URLCache:
     """高效的URL解析结果缓存类"""
 
     def __init__(
-        self, max_size: int = 1000, ttl: int = 86400, cleanup_threshold: int = 100
+        self,
+        max_size: int = 1000,
+        ttl: int = 24 * 60 * 60,
+        cleanup_threshold: int = 100,
     ):
         """
         初始化缓存
@@ -22,55 +25,27 @@ class URLCache:
         self.cache: Dict[str, Tuple[str, float]] = {}  # (url, timestamp)
         self.max_size = max_size
         self.ttl = ttl
+        self.cleanup_threshold = cleanup_threshold
         self.hits = 0
         self.misses = 0
-        self.logger = logging.getLogger("URLCache")
         self.operations_count = 0
-        self.cleanup_threshold = cleanup_threshold
-        self.last_cleanup_time = time.time()
+        self.logger = logging.getLogger("URLCache")
 
-    def get(self, url: str) -> Optional[str]:
-        """获取缓存的URL"""
-        self.operations_count += 1
-        self._maybe_clean_expired()
+    def stats(self) -> Dict[str, Any]:
+        """返回缓存统计信息"""
+        total_reqs = self.hits + self.misses
+        hit_rate = self.hits / total_reqs if total_reqs > 0 else 0
 
-        if url in self.cache:
-            cached_url, timestamp = self.cache[url]
-            # 检查是否过期
-            if time.time() - timestamp <= self.ttl:
-                self.hits += 1
-                return cached_url
-            else:
-                # 过期了，删除并返回None
-                del self.cache[url]
+        return {
+            "size": len(self.cache),
+            "max_size": self.max_size,
+            "ttl": self.ttl,
+            "hits": self.hits,
+            "misses": self.misses,
+            "hit_rate": hit_rate,
+        }
 
-        self.misses += 1
-        return None
-
-    def set(self, org_url: str, real_url: str) -> None:
-        """设置缓存"""
-        self.operations_count += 1
-        self._maybe_clean_expired()
-
-        # 检查缓存是否已满
-        if len(self.cache) >= self.max_size:
-            self._evict_entries()
-
-        self.cache[org_url] = (real_url, time.time())
-
-    def _maybe_clean_expired(self) -> None:
-        """按需清理过期缓存项"""
-        current_time = time.time()
-        # 每隔cleanup_threshold次操作或30分钟清理一次
-        if (
-            self.operations_count >= self.cleanup_threshold
-            or current_time - self.last_cleanup_time > 1800
-        ):
-            self._clean_expired()
-            self.operations_count = 0
-            self.last_cleanup_time = current_time
-
-    def _clean_expired(self) -> None:
+    def clean_expired(self) -> None:
         """清理过期的缓存项"""
         now = time.time()
         expired_keys = []
@@ -99,22 +74,57 @@ class URLCache:
         if expired_keys and self.logger:
             self.logger.debug(f"清理了 {len(expired_keys)} 个过期缓存项")
 
-    def _evict_entries(self) -> None:
+    def maybe_clean_expired(self) -> None:
+        """按需清理过期缓存项"""
+        # 每隔cleanup_threshold次操作清理一次
+        if self.operations_count >= self.cleanup_threshold:
+            self.clean_expired()
+            self.operations_count = 0
+
+    def evict_entries(self, max_percent=20) -> None:
         """删除部分缓存项以腾出空间"""
         if not self.cache:
             return
 
-        # 按访问时间排序，删除最旧的20%
         items = list(self.cache.items())
         items.sort(key=lambda x: x[1][1])  # 按时间戳排序
 
-        to_remove = items[: max(1, len(items) // 5)]  # 至少删除1个，最多删除20%
+        to_remove = items[: max(1, len(items) * max_percent // 100)]
 
         for key, _ in to_remove:
             del self.cache[key]
 
         if self.logger:
             self.logger.debug(f"缓存空间不足，删除了 {len(to_remove)} 个最旧的缓存项")
+
+    def set(self, org_url: str, real_url: str) -> None:
+        """设置缓存"""
+        self.operations_count += 1
+        self.maybe_clean_expired()
+
+        # 检查缓存是否已满
+        if len(self.cache) >= self.max_size:
+            self.evict_entries()
+
+        self.cache[org_url] = (real_url, time.time())
+
+    def get(self, url: str) -> Optional[str]:
+        """获取缓存的URL"""
+        self.operations_count += 1
+        self.maybe_clean_expired()
+
+        if url in self.cache:
+            cached_url, timestamp = self.cache[url]
+            # 检查是否过期
+            if time.time() - timestamp <= self.ttl:
+                self.hits += 1
+                return cached_url
+            else:
+                # 过期了，删除并返回None
+                del self.cache[url]
+
+        self.misses += 1
+        return None
 
     def clear(self) -> None:
         """清空缓存"""
@@ -124,25 +134,11 @@ class URLCache:
         if self.logger:
             self.logger.debug("缓存已清空")
 
-    def stats(self) -> Dict[str, Any]:
-        """返回缓存统计信息"""
-        total_requests = self.hits + self.misses
-        hit_rate = self.hits / total_requests if total_requests > 0 else 0
-
-        return {
-            "size": len(self.cache),
-            "max_size": self.max_size,
-            "ttl": self.ttl,
-            "hits": self.hits,
-            "misses": self.misses,
-            "hit_rate": hit_rate,
-        }
-
     def save_to_file(self, file_path: Path) -> bool:
         """保存缓存到文件"""
         try:
             # 只保存未过期的缓存项
-            self._clean_expired()
+            self.clean_expired()
 
             # 将缓存转换为可序列化的格式
             serializable_cache = {}
