@@ -10,6 +10,7 @@ from typing import Dict, Any, Optional, List
 from scrapers.baidu_scraper import BaiduScraper
 from utils.file_utils import save_search_results
 from utils.logging_utils import setup_logger, get_log_level_from_string
+from utils.config_manager import ConfigManager
 from config import (
     HEADERS,
     PROXY_LIST,
@@ -57,45 +58,58 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--concurrent",
         type=int,
-        help=f"并发请求数（默认：{DEFAULT_CONFIG['semaphore_limit']}）",
+        help=f"并发请求数（默认：{DEFAULT_CONFIG['max_semaphore']}）",
     )
     parser.add_argument(
         "--timeout",
         type=int,
-        help=f"请求超时时间（秒）（默认：{DEFAULT_CONFIG['fetch_timeout']}）",
+        help=f"请求超时时间（秒）（默认：{DEFAULT_CONFIG['timeout']}）",
     )
     parser.add_argument(
         "--retries",
         type=int,
-        help=f"请求失败重试次数（默认：{DEFAULT_CONFIG['fetch_retries']}）",
+        help=f"请求失败重试次数（默认：{DEFAULT_CONFIG['retries']}）",
     )
     parser.add_argument("--proxy", action="store_true", help="为所有请求使用代理")
     return parser.parse_args()
 
 
 def get_scraper_config(
-    args: argparse.Namespace, log_to_console: bool, log_file_path: Optional[Path]
+    args: argparse.Namespace,
+    config_manager: ConfigManager,
+    log_to_console: bool,
+    log_file_path: Optional[Path],
 ) -> Dict[str, Any]:
     """根据命令行参数生成爬虫配置"""
+    # 尝试从配置文件加载配置，如果不存在则使用默认配置
+    scraper_config = config_manager.load_config("scraper")
+    if not scraper_config:
+        scraper_config = {}
+
+    # 使用默认配置填充缺失的值
     config = DEFAULT_CONFIG.copy()
+
+    # 优先使用命令行参数
     if args.concurrent:
-        config["semaphore_limit"] = args.concurrent
+        config["max_semaphore"] = args.concurrent
     if args.timeout:
-        config["fetch_timeout"] = args.timeout
+        config["timeout"] = args.timeout
     if args.retries:
-        config["fetch_retries"] = args.retries
+        config["retries"] = args.retries
+
+    # 获取日志级别
     log_level = get_log_level_from_string(args.log_level)
+
+    # 构建最终配置
     return {
         "headers": HEADERS,
         "proxies": PROXY_LIST,
-        "use_proxy_for_search": bool(args.proxy),
-        "semaphore_limit": config["semaphore_limit"],
-        "min_delay_between_requests": config["min_delay_between_requests"],
-        "max_delay_between_requests": config["max_delay_between_requests"],
-        "fetch_timeout": config["fetch_timeout"],
-        "fetch_retries": config["fetch_retries"],
-        "min_retries_sleep": config["min_retries_sleep"],
-        "max_retries_sleep": config["max_retries_sleep"],
+        "use_proxy": bool(args.proxy),
+        "max_semaphore": config["max_semaphore"],
+        "timeout": config["timeout"],
+        "retries": config["retries"],
+        "min_sleep": config["min_sleep"],
+        "max_sleep": config["max_sleep"],
         "max_redirects": config["max_redirects"],
         "cache_size": config["cache_size"],
         "enable_logging": True,
@@ -105,16 +119,23 @@ def get_scraper_config(
     }
 
 
-def get_output_file(args: argparse.Namespace, query: str) -> Path:
+def get_output_file(
+    args: argparse.Namespace, config_manager: ConfigManager, query: str
+) -> Path:
     """确定输出文件路径"""
     if args.output:
         output_path = Path(args.output)
     else:
+        # 获取缓存目录，如果配置中没有则使用命令行参数或默认值
+        cache_dir = args.cache_dir
+        if not cache_dir:
+            paths_config = config_manager.load_config("paths")
+            cache_dir = paths_config.get("cache_dir", str(CACHE_DIR))
+
         safe_query = "".join(c if c.isalnum() else "_" for c in query)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = (
-            Path(args.cache_dir) / f"baidu_search_{safe_query}_{timestamp}.json"
-        )
+        output_path = Path(cache_dir) / f"baidu_search_{safe_query}_{timestamp}.json"
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     return output_path
 
@@ -149,6 +170,9 @@ async def run_search(
 
 async def main():
     """主函数"""
+    # 初始化配置管理器
+    config_manager = ConfigManager()
+
     try:
         args = parse_args()
 
@@ -179,7 +203,13 @@ async def main():
         # 设置主日志记录器，确保在所有操作之前完成配置
         log_file_path = None
         if log_to_file:
-            log_file_path = args.log_file or LOG_FILE
+            # 尝试从配置获取日志文件路径，如果没有则使用命令行参数或默认值
+            if args.log_file:
+                log_file_path = Path(args.log_file)
+            else:
+                paths_config = config_manager.load_config("paths")
+                log_file_path = Path(paths_config.get("log_file", str(LOG_FILE)))
+
             log_file_path.parent.mkdir(parents=True, exist_ok=True)  # 确保日志目录存在
 
         logger = setup_logger(
@@ -195,18 +225,23 @@ async def main():
         if args.cache_file:
             cache_file = Path(args.cache_file)
         else:
-            cache_dir = Path(args.cache_dir)
+            paths_config = config_manager.load_config("paths")
+            cache_dir = Path(
+                args.cache_dir or paths_config.get("cache_dir", str(CACHE_DIR))
+            )
             cache_dir.mkdir(parents=True, exist_ok=True)
             cache_file = cache_dir / "url_cache.json"
 
         # 确定输出文件路径
         output_file = None
         if save_results:
-            output_file = get_output_file(args, query)
+            output_file = get_output_file(args, config_manager, query)
             logger.info(f"搜索结果将保存到: {output_file}")
 
         # 创建和配置爬虫
-        scraper_config = get_scraper_config(args, log_to_console, log_file_path)
+        scraper_config = get_scraper_config(
+            args, config_manager, log_to_console, log_file_path
+        )
         scraper = BaiduScraper(**scraper_config)
 
         # 清除缓存（如果需要）
@@ -230,6 +265,7 @@ async def main():
             if not args.no_cache and cache_file.exists():
                 logger.warning("尝试从缓存加载部分结果...")
                 # 可以添加从缓存恢复的逻辑
+            results = []
         except Exception as e:
             logger.error(f"搜索过程中发生未知错误: {str(e)}", exc_info=True)
             results = []
@@ -254,9 +290,9 @@ async def main():
         # 输出统计信息
         stats = scraper.get_stats()
         logger.info("爬虫统计信息:")
-        logger.info(f"- 总请求数: {stats['requests_total']}")
-        logger.info(f"- 成功请求数: {stats['requests_success']}")
-        logger.info(f"- 失败请求数: {stats['requests_failed']}")
+        logger.info(f"- 总请求数: {stats['total']}")
+        logger.info(f"- 成功请求数: {stats['success']}")
+        logger.info(f"- 失败请求数: {stats['failed']}")
         logger.info(f"- 成功率: {stats['success_rate']*100:.2f}%")
         logger.info(f"- 运行时间: {stats['duration']:.2f}秒")
 

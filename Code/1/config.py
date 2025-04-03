@@ -18,13 +18,11 @@ LOG_DIR = Path("logs")
 
 # 默认爬虫配置
 DEFAULT_CONFIG = {
-    "semaphore_limit": 25,
-    "min_delay_between_requests": 0.1,
-    "max_delay_between_requests": 0.3,
-    "fetch_timeout": 3,
-    "fetch_retries": 1,
-    "min_retries_sleep": 0.1,
-    "max_retries_sleep": 0.3,
+    "max_semaphore": 25,
+    "timeout": 3,
+    "retries": 2,
+    "min_sleep": 0.1,
+    "max_sleep": 0.3,
     "max_redirects": 5,
     "cache_size": 1000,
 }

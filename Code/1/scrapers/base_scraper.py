@@ -1,10 +1,10 @@
+from typing import Any, Dict, List, Optional, Union
+import logging
+from pathlib import Path
 import aiohttp
 import asyncio
-import logging
 import random
 import time
-from typing import List, Dict, Any, Optional, Union
-from pathlib import Path
 
 from utils.cache import URLCache
 from utils.logging_utils import setup_logger
@@ -17,21 +17,19 @@ class BaseScraper:
         self,
         headers: Dict[str, str],
         proxies: List[str] = None,
-        use_proxy_for_search: bool = False,
-        semaphore_limit: int = 25,
-        min_delay_between_requests: float = 0.1,
-        max_delay_between_requests: float = 0.3,
-        fetch_timeout: int = 3,
-        fetch_retries: int = 2,
-        min_retries_sleep: float = 0.1,
-        max_retries_sleep: float = 0.3,
+        use_proxy: bool = False,
+        max_semaphore: int = 25,
+        timeout: int = 3,
+        retries: int = 0,
+        min_sleep: float = 0.1,
+        max_sleep: float = 0.3,
         max_redirects: int = 5,
         cache_size: int = 1000,
-        cache_ttl: int = 86400,  # 默认缓存1天
+        cache_ttl: int = 24 * 60 * 60,
         enable_logging: bool = False,
+        log_to_console: bool = True,
         log_level: int = logging.INFO,
         log_file: Optional[Union[str, Path]] = None,
-        log_to_console: bool = True,
     ):
         """
         初始化基础爬虫
@@ -57,28 +55,26 @@ class BaseScraper:
         """
         self.headers = headers
         self.proxies = proxies or []
-        self.use_proxy_for_search = use_proxy_for_search
-        self.semaphore_limit = semaphore_limit
-        self.min_delay = min_delay_between_requests
-        self.max_delay = max_delay_between_requests
-        self.fetch_timeout = fetch_timeout
-        self.fetch_retries = fetch_retries
-        self.min_retries_sleep = min_retries_sleep
-        self.max_retries_sleep = max_retries_sleep
+        self.use_proxy = use_proxy
+        self.max_semaphore = max_semaphore
+        self.timeout = timeout
+        self.retries = retries
+        self.min_sleep = min_sleep
+        self.max_sleep = max_sleep
         self.max_redirects = max_redirects
         self.url_cache = URLCache(max_size=cache_size, ttl=cache_ttl)
         self.logger = None
 
         # 初始化信号量
-        self.semaphore = asyncio.Semaphore(semaphore_limit)
+        self.semaphore = asyncio.Semaphore(max_semaphore)
 
         # 初始化统计信息
         self.stats = {
-            "requests_total": 0,
-            "requests_success": 0,
-            "requests_failed": 0,
-            "start_time": None,
-            "end_time": None,
+            "total": 0,
+            "success": 0,
+            "failed": 0,
+            "start": None,
+            "end": None,
         }
 
         if enable_logging:
@@ -86,6 +82,28 @@ class BaseScraper:
                 self.__class__.__name__, log_level, log_file, log_to_console
             )
             self.logger.info(f"初始化 {self.__class__.__name__}")
+
+    def get_stats(self) -> Dict[str, Any]:
+        """获取爬虫统计信息"""
+        stats = self.stats.copy()
+
+        # 添加运行时间计算
+        if stats["start"] and stats["end"]:
+            stats["duration"] = stats["end"] - stats["start"]
+        else:
+            stats["duration"] = 0
+
+        # 添加成功率计算
+        if stats["total"] > 0:
+            stats["success_rate"] = stats["success"] / stats["total"]
+        else:
+            stats["success_rate"] = 0
+
+        # 添加缓存统计
+        if hasattr(self, "url_cache"):
+            stats["cache"] = self.url_cache.stats()
+
+        return stats
 
     async def get_page(
         self,
@@ -113,22 +131,22 @@ class BaseScraper:
             网页内容或None（请求失败）
         """
         # 使用传入的参数，或者使用实例默认值
-        use_proxy = use_proxy if use_proxy is not None else self.use_proxy_for_search
+        use_proxy = use_proxy if use_proxy is not None else self.use_proxy
         headers = headers or self.headers
-        timeout = timeout or self.fetch_timeout
-        retries = retries if retries is not None else self.fetch_retries
+        timeout = timeout or self.timeout
+        retries = retries if retries is not None else self.retries
 
         # 更新统计信息
-        self.stats["requests_total"] += 1
-        if self.stats["start_time"] is None:
-            self.stats["start_time"] = time.time()
+        self.stats["total"] += 1
+        if self.stats["start"] is None:
+            self.stats["start"] = time.time()
 
         session_provided = session is not None
         if not session_provided:
             session = aiohttp.ClientSession()
         try:
             # 请求前添加随机延迟
-            await asyncio.sleep(random.uniform(self.min_delay, self.max_delay))
+            await asyncio.sleep(random.uniform(self.min_sleep, self.max_sleep))
 
             # 如果需要代理且有代理列表，随机选择一个代理
             proxy = random.choice(self.proxies) if self.proxies and use_proxy else None
@@ -157,7 +175,7 @@ class BaseScraper:
 
                             # 如果是最后一次尝试，更新失败统计
                             if attempt == retries:
-                                self.stats["requests_failed"] += 1
+                                self.stats["failed"] += 1
 
                             # 对于某些状态码，可能不需要重试
                             if response.status in (404, 403):
@@ -166,7 +184,7 @@ class BaseScraper:
                             # 对于其他状态码，如果还有重试次数，则继续重试
                             if attempt < retries:
                                 sleep_time = random.uniform(
-                                    self.min_retries_sleep, self.max_retries_sleep
+                                    self.min_sleep, self.max_sleep
                                 )
                                 if self.logger:
                                     self.logger.debug(
@@ -182,8 +200,8 @@ class BaseScraper:
                             self.logger.debug(f"响应长度: {len(text)} 字节")
 
                         # 更新成功统计
-                        self.stats["requests_success"] += 1
-                        self.stats["end_time"] = time.time()
+                        self.stats["success"] += 1
+                        self.stats["end"] = time.time()
 
                         return text
 
@@ -191,41 +209,17 @@ class BaseScraper:
                     if attempt == retries:
                         if self.logger:
                             self.logger.error(f"请求过程中发生错误: {str(e)}")
-                        self.stats["requests_failed"] += 1
+                        self.stats["failed"] += 1
                         return None
 
-                    sleep_time = random.uniform(
-                        self.min_retries_sleep, self.max_retries_sleep
-                    )
+                    sleep = random.uniform(self.min_sleep, self.max_sleep)
                     if self.logger:
                         self.logger.debug(
-                            f"重试 ({attempt+1}/{retries}) 等待 {sleep_time:.2f}秒，错误: {str(e)}"
+                            f"重试 ({attempt+1}/{retries}) 等待 {sleep:.2f}秒，错误: {str(e)}"
                         )
-                    await asyncio.sleep(sleep_time)
+                    await asyncio.sleep(sleep)
 
             return None  # 如果所有重试都失败
         finally:
             if not session_provided:
                 await session.close()
-
-    def get_stats(self) -> Dict[str, Any]:
-        """获取爬虫统计信息"""
-        stats = self.stats.copy()
-
-        # 添加运行时间计算
-        if stats["start_time"] and stats["end_time"]:
-            stats["duration"] = stats["end_time"] - stats["start_time"]
-        else:
-            stats["duration"] = 0
-
-        # 添加成功率计算
-        if stats["requests_total"] > 0:
-            stats["success_rate"] = stats["requests_success"] / stats["requests_total"]
-        else:
-            stats["success_rate"] = 0
-
-        # 添加缓存统计
-        if hasattr(self, "url_cache"):
-            stats["cache"] = self.url_cache.stats()
-
-        return stats

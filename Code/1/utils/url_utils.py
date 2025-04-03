@@ -45,13 +45,61 @@ def fix_url(url: str, base: str) -> str:
     return url
 
 
+def normalize_url(url: str, base: str, strip_params: bool = False) -> str:
+    """
+    规范化 URL，支持基于 base 的相对路径解析
+
+    Args:
+        url: 要规范化的 URL
+        base: 基准 URL, 用于解析相对路径
+        strip_params: 是否去除 URL 参数
+
+    Returns:
+        规范化后的 URL
+    """
+    if not url or isinstance(url, Exception):
+        return ""
+
+    # 如果 URL 无效，尝试用 base 修复
+    if not is_valid_url(url):
+        url = fix_url(url, base)
+
+    try:
+        parsed = urlparse(url)
+
+        # 确保有协议和域名
+        scheme = parsed.scheme.lower() or "https"  # 默认使用 https
+        netloc = parsed.netloc.lower()
+
+        # 去掉 www 前缀
+        if netloc.startswith("www."):
+            netloc = netloc[4:]
+
+        # 规范化路径，去除尾部斜杠和冗余段
+        path = parsed.path.rstrip("/")
+        if not path:
+            path = "/"
+
+        # 是否保留参数
+        query = "" if strip_params else parsed.query
+
+        # 重建 URL
+        normalized = f"{scheme}://{netloc}{path}"
+        if query:
+            normalized += f"?{query}"
+
+        return normalized
+    except Exception:
+        return url  # 解析失败返回原 URL
+
+
 async def fetch_real_url(
     session: aiohttp.ClientSession,
     org_link: str,
     headers: dict,
     proxy_list: List[str],
     base: str,
-    semaphore: asyncio.Semaphore,
+    max_semaphore: asyncio.Semaphore,
     timeout: int = 3,
     retries: int = 0,
     min_sleep: float = 0.1,
@@ -85,7 +133,7 @@ async def fetch_real_url(
     if "Cookie" in request_headers:
         del request_headers["Cookie"]
 
-    async with semaphore:
+    async with max_semaphore:
         current_url = org_link
         redirect_count = 0
 
@@ -173,7 +221,7 @@ async def batch_fetch_real_urls(
     headers: dict,
     proxy_list: List[str],
     base: str,
-    semaphore: asyncio.Semaphore,
+    max_semaphore: asyncio.Semaphore,
     timeout: int = 3,
     retries: int = 0,
     min_sleep: float = 0.1,
@@ -202,7 +250,7 @@ async def batch_fetch_real_urls(
                 request_headers,
                 proxy_list,
                 base,
-                semaphore,
+                max_semaphore,
                 timeout,
                 retries,
                 min_sleep,
@@ -221,51 +269,3 @@ async def batch_fetch_real_urls(
             await asyncio.sleep(random.uniform(min_sleep, max_sleep))
 
     return results
-
-
-def normalize_url(url: str, base: str, strip_params: bool = False) -> str:
-    """
-    规范化 URL，支持基于 base 的相对路径解析
-
-    Args:
-        url: 要规范化的 URL
-        base: 基准 URL, 用于解析相对路径
-        strip_params: 是否去除 URL 参数
-
-    Returns:
-        规范化后的 URL
-    """
-    if not url or isinstance(url, Exception):
-        return ""
-
-    # 如果 URL 无效，尝试用 base 修复
-    if not is_valid_url(url):
-        url = fix_url(url, base)
-
-    try:
-        parsed = urlparse(url)
-
-        # 确保有协议和域名
-        scheme = parsed.scheme.lower() or "https"  # 默认使用 https
-        netloc = parsed.netloc.lower()
-
-        # 去掉 www 前缀
-        if netloc.startswith("www."):
-            netloc = netloc[4:]
-
-        # 规范化路径，去除尾部斜杠和冗余段
-        path = parsed.path.rstrip("/")
-        if not path:
-            path = "/"
-
-        # 是否保留参数
-        query = "" if strip_params else parsed.query
-
-        # 重建 URL
-        normalized = f"{scheme}://{netloc}{path}"
-        if query:
-            normalized += f"?{query}"
-
-        return normalized
-    except Exception:
-        return url  # 解析失败返回原 URL

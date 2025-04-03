@@ -299,20 +299,20 @@ class BaiduScraper(BaseScraper):
                     all_links.append(href)
                     link_map[(i, j)] = len(all_links) - 1
 
-        semaphore = asyncio.Semaphore(self.semaphore_limit)
+        semaphore = asyncio.Semaphore(self.max_semaphore)
         headers = {k: v for k, v in self.headers.items() if k != "Cookie"}
-        batch_size = min(20, max(5, self.semaphore_limit))
+        batch_size = min(20, max(5, self.max_semaphore))
         real_urls = await batch_fetch_real_urls(
             session,
             all_links,
             headers,
             self.proxies,
-            "https://www.baidu.com",  # 添加基准URL参数
+            "https://www.baidu.com",  # 基准URL参数
             semaphore,
-            self.fetch_timeout,
-            self.fetch_retries,
-            self.min_retries_sleep,
-            self.max_retries_sleep,
+            self.timeout,
+            self.retries,
+            self.min_sleep,
+            self.max_sleep,
             self.max_redirects,
             self.logger,
             self.url_cache.cache,
@@ -413,7 +413,7 @@ class BaiduScraper(BaseScraper):
                 html_content = await self.get_page(
                     url="https://www.baidu.com/s",
                     params=params,
-                    use_proxy=self.use_proxy_for_search,
+                    use_proxy=self.use_proxy,
                     headers=current_headers,
                 )
                 if not html_content:
