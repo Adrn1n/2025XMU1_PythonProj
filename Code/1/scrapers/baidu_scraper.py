@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Tuple, Optional
 from pathlib import Path
 
 from scrapers.base_scraper import BaseScraper
-from utils.url_utils import fetch_real_url, batch_fetch_urls
+from utils.url_utils import fetch_real_url, batch_fetch_real_urls
 
 
 class BaiduScraper(BaseScraper):
@@ -302,11 +302,12 @@ class BaiduScraper(BaseScraper):
         semaphore = asyncio.Semaphore(self.semaphore_limit)
         headers = {k: v for k, v in self.headers.items() if k != "Cookie"}
         batch_size = min(20, max(5, self.semaphore_limit))
-        real_urls = await batch_fetch_urls(
+        real_urls = await batch_fetch_real_urls(
             session,
             all_links,
             headers,
             self.proxies,
+            "https://www.baidu.com",  # 添加基准URL参数
             semaphore,
             self.fetch_timeout,
             self.fetch_retries,

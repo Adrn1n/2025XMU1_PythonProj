@@ -1,9 +1,48 @@
+from urllib.parse import urljoin, urlparse
 import aiohttp
 import asyncio
-from urllib.parse import urljoin, urlparse
-import random
+from typing import Dict, List, Optional
 import logging
-from typing import List, Dict, Optional
+import random
+
+
+def is_valid_url(url: str) -> bool:
+    if not url:
+        return False
+    try:
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])
+    except Exception:
+        return False
+
+
+def fix_url(url: str, base: str) -> str:
+    """
+    修复不完整的URL
+
+    Args:
+        url: 可能不完整的URL
+        head: 基准URL，用于拼接相对路径
+
+    Returns:
+        修复后的URL
+
+    Raises:
+        ValueError: 如果head不是有效的URL
+    """
+    if not url:
+        return ""
+
+    if not is_valid_url(base):
+        raise ValueError(f"Invalid base URL: {base}")
+
+    if not url.startswith(("http://", "https://")):
+        try:
+            url = urljoin(base, url)
+        except Exception:
+            return url  # 如果拼接失败，返回原URL
+
+    return url
 
 
 async def fetch_real_url(
@@ -11,55 +50,37 @@ async def fetch_real_url(
     org_link: str,
     headers: dict,
     proxy_list: List[str],
+    base: str,
     semaphore: asyncio.Semaphore,
     timeout: int = 3,
     retries: int = 0,
-    min_retries_sleep: float = 0.1,
-    max_retries_sleep: float = 0.3,
+    min_sleep: float = 0.1,
+    max_sleep: float = 0.3,
     max_redirects: int = 5,
     logger: Optional[logging.Logger] = None,
     cache: Optional[Dict[str, str]] = None,
 ) -> str:
-    """
-    获取百度链接的真实URL
-
-    Args:
-        session: aiohttp会话
-        org_link: 原始链接
-        headers: 请求头
-        proxy_list: 代理列表
-        semaphore: 控制并发的信号量
-        timeout: 请求超时时间(秒)
-        retries: 失败重试次数
-        min_retries_sleep: 重试最小等待时间
-        max_retries_sleep: 重试最大等待时间
-        max_redirects: 最大重定向次数
-        logger: 日志记录器
-        cache: URL缓存字典
-
-    Returns:
-        解析后的真实URL
-    """
-    # 使用缓存避免重复解析
-    if cache is not None and org_link in cache:
-        if logger:
-            logger.debug(f"从缓存返回URL: {org_link} -> {cache[org_link]}")
-        return cache[org_link]
-
-    # 如果链接为空，直接返回空字符串
     if not org_link:
         if logger:
             logger.debug("空链接，返回空")
         return ""
 
-    # 如果链接不是有效的URL，尝试修正
-    if not is_valid_url(org_link):
-        fixed_link = fix_url(org_link)
+    if cache and org_link in cache:
         if logger:
-            logger.debug(f"修正链接格式: {org_link} -> {fixed_link}")
-        org_link = fixed_link
+            logger.debug(f"从缓存返回URL: {org_link} -> {cache[org_link]}")
+        return cache[org_link]
 
-    # 确保请求头中不包含Cookie，避免与session中的cookies冲突
+    if not is_valid_url(org_link):
+        try:
+            fixed_link = fix_url(org_link, base)
+            if logger:
+                logger.debug(f"修正链接格式: {org_link} -> {fixed_link}")
+            org_link = fixed_link
+        except ValueError as e:
+            if logger:
+                logger.error(f"基准URL无效: {str(e)}")
+            return org_link
+
     request_headers = headers.copy()
     if "Cookie" in request_headers:
         del request_headers["Cookie"]
@@ -78,7 +99,6 @@ async def fetch_real_url(
                             + (f" 通过代理: {proxy}" if proxy else "")
                         )
 
-                    # 更新Referer为当前URL的域名
                     if "Referer" in request_headers:
                         parsed_url = urlparse(current_url)
                         base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
@@ -87,7 +107,7 @@ async def fetch_real_url(
                     async with session.get(
                         current_url,
                         headers=request_headers,
-                        allow_redirects=False,  # 手动处理重定向以提高控制
+                        allow_redirects=False,
                         timeout=aiohttp.ClientTimeout(total=timeout),
                         proxy=proxy,
                     ) as response:
@@ -100,7 +120,6 @@ async def fetch_real_url(
                                     cache[org_link] = org_link
                                 return org_link
 
-                            # 处理相对路径的重定向URL
                             current_url = urljoin(str(response.url), location)
                             redirect_count += 1
 
@@ -109,8 +128,7 @@ async def fetch_real_url(
                                     f"检测到重定向 ({redirect_count}/{max_redirects}): {current_url}"
                                 )
 
-                            # 短暂暂停，避免过快请求
-                            await asyncio.sleep(random.uniform(0.1, 0.3))
+                            await asyncio.sleep(random.uniform(min_sleep, max_sleep))
                             break
                         else:
                             result = str(response.url)
@@ -128,9 +146,7 @@ async def fetch_real_url(
                                 f"代理: {proxy}, 错误: {str(e)}"
                             )
                     if attempt < retries:
-                        sleep_time = random.uniform(
-                            min_retries_sleep, max_retries_sleep
-                        )
+                        sleep_time = random.uniform(min_sleep, max_sleep)
                         if logger:
                             logger.debug(
                                 f"重试 {attempt+1}/{retries}，等待 {sleep_time:.2f}秒"
@@ -151,147 +167,27 @@ async def fetch_real_url(
         return current_url
 
 
-def is_valid_url(url: str) -> bool:
-    """
-    检查URL是否有效
-
-    Args:
-        url: 要检查的URL
-
-    Returns:
-        是否是有效的URL
-    """
-    if not url:
-        return False
-
-    try:
-        result = urlparse(url)
-        return all([result.scheme, result.netloc])
-    except Exception:
-        return False
-
-
-def fix_url(url: str) -> str:
-    """
-    修复不完整的URL
-
-    Args:
-        url: 可能不完整的URL
-
-    Returns:
-        修复后的URL
-    """
-    if not url:
-        return ""
-
-    # 如果链接不以http://或https://开头，进行修正
-    if not url.startswith(("http://", "https://")):
-        url = urljoin("https://www.baidu.com/", url)
-
-    return url
-
-
-def normalize_url(url: str, strip_params: bool = False) -> str:
-    """
-    规范化URL，使不同形式的相同URL可以匹配
-
-    Args:
-        url: 要规范化的URL
-        strip_params: 是否去除URL参数
-
-    Returns:
-        规范化后的URL
-    """
-    if not url or isinstance(url, Exception):
-        return ""
-
-    try:
-        # 解析URL
-        parsed = urlparse(url)
-
-        # 确保有协议和域名
-        if not parsed.netloc:
-            # 如果是相对路径，则加上默认域名
-            if url.startswith("/"):
-                url = f"https://www.baidu.com{url}"
-                parsed = urlparse(url)
-            else:
-                return url  # 无法解析，返回原始URL
-
-        # 构建规范化的URL
-        scheme = parsed.scheme.lower() or "http"
-        netloc = parsed.netloc.lower()
-
-        # 去掉www前缀
-        if netloc.startswith("www."):
-            netloc = netloc[4:]
-
-        # 删除尾部的斜杠
-        path = parsed.path
-        if path.endswith("/") and len(path) > 1:
-            path = path[:-1]
-
-        # 是否保留参数
-        if strip_params:
-            query = ""
-        else:
-            query = parsed.query
-
-        # 重建URL
-        normalized = f"{scheme}://{netloc}{path}"
-        if query:
-            normalized += f"?{query}"
-
-        return normalized
-    except Exception:
-        # 解析失败时返回原URL
-        return url
-
-
-async def batch_fetch_urls(
+async def batch_fetch_real_urls(
     session: aiohttp.ClientSession,
     urls: List[str],
     headers: dict,
     proxy_list: List[str],
+    base: str,
     semaphore: asyncio.Semaphore,
     timeout: int = 3,
     retries: int = 0,
-    min_retries_sleep: float = 0.1,
-    max_retries_sleep: float = 0.3,
+    min_sleep: float = 0.1,
+    max_sleep: float = 0.3,
     max_redirects: int = 5,
     logger: Optional[logging.Logger] = None,
     cache: Optional[Dict[str, str]] = None,
     batch_size: int = 10,
 ) -> List[str]:
-    """
-    批量获取真实URL
-
-    Args:
-        session: aiohttp会话
-        urls: 原始URL列表
-        headers: 请求头
-        proxy_list: 代理列表
-        semaphore: 控制并发的信号量
-        timeout: 请求超时时间(秒)
-        retries: 失败重试次数
-        min_retries_sleep: 重试最小等待时间
-        max_retries_sleep: 重试最大等待时间
-        max_redirects: 最大重定向次数
-        logger: 日志记录器
-        cache: URL缓存字典
-        batch_size: 批处理大小
-
-    Returns:
-        真实URL列表
-    """
-    # 确保请求头中不包含Cookie，避免与session中的cookies冲突
     request_headers = headers.copy()
     if "Cookie" in request_headers:
         del request_headers["Cookie"]
 
     results = []
-
-    # 分批处理URL
     for i in range(0, len(urls), batch_size):
         batch = urls[i : i + batch_size]
         if logger:
@@ -305,11 +201,12 @@ async def batch_fetch_urls(
                 url,
                 request_headers,
                 proxy_list,
+                base,
                 semaphore,
                 timeout,
                 retries,
-                min_retries_sleep,
-                max_retries_sleep,
+                min_sleep,
+                max_sleep,
                 max_redirects,
                 logger,
                 cache,
@@ -320,8 +217,55 @@ async def batch_fetch_urls(
         batch_results = await asyncio.gather(*tasks, return_exceptions=True)
         results.extend(batch_results)
 
-        # 在批次之间添加短暂休眠，避免过度请求
         if i + batch_size < len(urls):
-            await asyncio.sleep(random.uniform(0.5, 1.0))
+            await asyncio.sleep(random.uniform(min_sleep, max_sleep))
 
     return results
+
+
+def normalize_url(url: str, base: str, strip_params: bool = False) -> str:
+    """
+    规范化 URL，支持基于 base 的相对路径解析
+
+    Args:
+        url: 要规范化的 URL
+        base: 基准 URL, 用于解析相对路径
+        strip_params: 是否去除 URL 参数
+
+    Returns:
+        规范化后的 URL
+    """
+    if not url or isinstance(url, Exception):
+        return ""
+
+    # 如果 URL 无效，尝试用 base 修复
+    if not is_valid_url(url):
+        url = fix_url(url, base)
+
+    try:
+        parsed = urlparse(url)
+
+        # 确保有协议和域名
+        scheme = parsed.scheme.lower() or "https"  # 默认使用 https
+        netloc = parsed.netloc.lower()
+
+        # 去掉 www 前缀
+        if netloc.startswith("www."):
+            netloc = netloc[4:]
+
+        # 规范化路径，去除尾部斜杠和冗余段
+        path = parsed.path.rstrip("/")
+        if not path:
+            path = "/"
+
+        # 是否保留参数
+        query = "" if strip_params else parsed.query
+
+        # 重建 URL
+        normalized = f"{scheme}://{netloc}{path}"
+        if query:
+            normalized += f"?{query}"
+
+        return normalized
+    except Exception:
+        return url  # 解析失败返回原 URL
