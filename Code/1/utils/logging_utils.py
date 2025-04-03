@@ -1,7 +1,7 @@
 import logging
+from typing import Optional, Union, List
 from pathlib import Path
 import sys
-from typing import Optional, Union, List
 
 
 def setup_logger(
@@ -75,7 +75,7 @@ def get_log_levels() -> List[str]:
 
 def get_log_level_from_string(level_name: str) -> int:
     """
-    将日志级别名称转换为对应的整数值
+    将日志级别名称转换为对应的整数值, 默认为INFO级别
 
     Args:
         level_name: 日志级别名称
