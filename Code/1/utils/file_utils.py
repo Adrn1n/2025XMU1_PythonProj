@@ -1,9 +1,9 @@
 import aiofiles
-import json
-import logging
-import time
 from typing import Any, Dict, List, Optional, Union
 from pathlib import Path
+import logging
+import time
+import json
 
 
 async def write_to_file(
@@ -31,7 +31,7 @@ async def write_to_file(
 
     # 创建或获取日志记录器
     if logger is None:
-        logger = logging.getLogger("file_utils")
+        logger = logging.getLogger("file_utils: write_to_file")
         logger.setLevel(log_level)
         if not logger.handlers:
             handler = logging.StreamHandler()
@@ -104,7 +104,7 @@ async def read_from_file(
 
     # 创建或获取日志记录器
     if logger is None:
-        logger = logging.getLogger("file_utils")
+        logger = logging.getLogger("file_utils: read_from_file")
         logger.setLevel(log_level)
         if not logger.handlers:
             handler = logging.StreamHandler()
