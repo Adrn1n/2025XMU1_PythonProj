@@ -61,6 +61,11 @@ def parse_args() -> argparse.Namespace:
         help=f"并发请求数（默认：{DEFAULT_CONFIG['max_semaphore']}）",
     )
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        help=f"批处理大小（默认：{DEFAULT_CONFIG['batch_size']}）",
+    )
+    parser.add_argument(
         "--timeout",
         type=int,
         help=f"请求超时时间（秒）（默认：{DEFAULT_CONFIG['timeout']}）",
@@ -92,6 +97,8 @@ def get_scraper_config(
     # 优先使用命令行参数
     if args.concurrent:
         config["max_semaphore"] = args.concurrent
+    if args.batch_size:
+        config["batch_size"] = args.batch_size
     if args.timeout:
         config["timeout"] = args.timeout
     if args.retries:
@@ -106,6 +113,7 @@ def get_scraper_config(
         "proxies": PROXY_LIST,
         "use_proxy": bool(args.proxy),
         "max_semaphore": config["max_semaphore"],
+        "batch_size": config["batch_size"],
         "timeout": config["timeout"],
         "retries": config["retries"],
         "min_sleep": config["min_sleep"],

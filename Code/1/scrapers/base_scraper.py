@@ -19,6 +19,7 @@ class BaseScraper:
         proxies: List[str] = None,
         use_proxy: bool = False,
         max_semaphore: int = 25,
+        batch_size: int = 25,
         timeout: int = 3,
         retries: int = 0,
         min_sleep: float = 0.1,
@@ -39,6 +40,7 @@ class BaseScraper:
             proxies: 代理列表
             use_proxy_for_search: 是否为搜索请求使用代理
             semaphore_limit: 并发请求限制
+            batch_size: URL批处理大小
             min_delay_between_requests: 请求间最小延迟
             max_delay_between_requests: 请求间最大延迟
             fetch_timeout: 请求超时时间
@@ -57,6 +59,7 @@ class BaseScraper:
         self.proxies = proxies or []
         self.use_proxy = use_proxy
         self.max_semaphore = max_semaphore
+        self.batch_size = batch_size  # Store the batch_size parameter
         self.timeout = timeout
         self.retries = retries
         self.min_sleep = min_sleep

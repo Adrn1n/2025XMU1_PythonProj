@@ -19,6 +19,7 @@ LOG_DIR = Path("logs")
 # 默认爬虫配置
 DEFAULT_CONFIG = {
     "max_semaphore": 25,
+    "batch_size": 25,  # Added batch_size with default 25
     "timeout": 3,
     "retries": 2,
     "min_sleep": 0.1,

@@ -72,54 +72,6 @@ class BaiduScraper(BaseScraper):
                 return ""
         return ""
 
-    def extract_related_links(self, result) -> List[Dict[str, Any]]:
-        """提取相关链接：遍历结果中的所有a标签，排除主标题链接，提取链接、内容、来源及时间"""
-        related_links = []
-        # 获取主标题链接以便排除
-        main_title = result.find(
-            "h3", class_=lambda x: x and any(kw in str(x) for kw in ["title", "t"])
-        )
-        main_links = main_title.find_all("a") if main_title else []
-
-        # 遍历所有链接
-        for link_tag in result.find_all("a"):
-            # 跳过主标题中的链接
-            if link_tag in main_links:
-                continue
-
-            href = link_tag.get("href", "")
-            title = link_tag.get_text(strip=True)
-            if not (title or href):
-                continue
-
-            # 找到链接的最近容器元素
-            container = self.find_link_container(link_tag, result)
-
-            # 提取内容、来源和时间
-            content = (
-                self.extract_from_container(container, self.RELATED_CONTENT_SELECTORS)
-                if container
-                else ""
-            )
-            source = (
-                self.extract_from_container(container, self.RELATED_SOURCE_SELECTORS)
-                if container
-                else ""
-            )
-            time_str = self.extract_time(container) if container else ""
-
-            related_links.append(
-                {
-                    "title": title,
-                    "url": href,
-                    "content": content,
-                    "source": source,
-                    "time": time_str,
-                    "more": [],
-                }
-            )
-        return related_links
-
     def find_link_container(self, link_tag, result):
         """查找链接的容器元素"""
         # 寻找链接的容器元素 - 优先查找特定类型的容器
@@ -159,6 +111,57 @@ class BaiduScraper(BaseScraper):
                 return elements[0].get_text(strip=True)
         return ""
 
+    def extract_related_links(
+        self, result, main_links: List[str]
+    ) -> List[Dict[str, Any]]:
+        """Extract related links from a result, excluding provided main links.
+
+        Args:
+            result: BeautifulSoup object representing a search result.
+            main_links (List[str]): List of main link URLs to exclude.
+
+        Returns:
+            List[Dict[str, Any]]: List of dictionaries with related link details.
+        """
+        related_links = []
+
+        # Traverse all <a> tags in the result
+        for link_tag in result.find_all("a"):
+            href = link_tag.get("href", "")
+
+            # Skip if the link is in main_links or lacks title/href
+            if href in main_links or not (href and link_tag.get_text(strip=True)):
+                continue
+
+            title = link_tag.get_text(strip=True)
+            container = self.find_link_container(link_tag, result)
+
+            # Extract additional data from the container
+            content = (
+                self.extract_from_container(container, self.RELATED_CONTENT_SELECTORS)
+                if container
+                else ""
+            )
+            source = (
+                self.extract_from_container(container, self.RELATED_SOURCE_SELECTORS)
+                if container
+                else ""
+            )
+            time_str = self.extract_time(container) if container else ""
+
+            related_links.append(
+                {
+                    "title": title,
+                    "url": href,
+                    "content": content,
+                    "source": source,
+                    "time": time_str,
+                    "more": [],
+                }
+            )
+
+        return related_links
+
     def merge_entries(self, target, source):
         """合并两个条目，将source的内容合并到target中"""
         # 补全缺失字段
@@ -179,9 +182,7 @@ class BaiduScraper(BaseScraper):
         if "related_links" in source:
             target.setdefault("related_links", []).extend(source["related_links"])
 
-    def deduplicate_results(
-        self, data: List[Dict[str, Any]], is_final=False
-    ) -> List[Dict[str, Any]]:
+    def deduplicate_results(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """去重处理：合并重复的主链接及其相关链接"""
         main_map = {}
         # 处理主链接的去重
@@ -228,13 +229,13 @@ class BaiduScraper(BaseScraper):
         self, data: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """初步去重"""
-        return self.deduplicate_results(data, is_final=False)
+        return self.deduplicate_results(data)
 
     def final_deduplicate_results(
         self, data: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """基于真实链接的最终去重"""
-        return self.deduplicate_results(data, is_final=True)
+        return self.deduplicate_results(data)
 
     async def process_real_urls(
         self, session: aiohttp.ClientSession, data: List[Dict[str, Any]]
@@ -259,7 +260,6 @@ class BaiduScraper(BaseScraper):
 
         semaphore = asyncio.Semaphore(self.max_semaphore)
         headers = {k: v for k, v in self.headers.items() if k != "Cookie"}
-        batch_size = min(20, max(5, self.max_semaphore))
         real_urls = await batch_fetch_real_urls(
             session,
             all_links,
@@ -274,7 +274,7 @@ class BaiduScraper(BaseScraper):
             self.max_redirects,
             self.logger,
             self.url_cache.cache,
-            batch_size,
+            self.batch_size,
         )
 
         for (i, pos), url_idx in link_map.items():
@@ -287,7 +287,7 @@ class BaiduScraper(BaseScraper):
         return self.final_deduplicate_results(data)
 
     def parse_results(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
-        """解析百度搜索结果"""
+        """Parse Baidu search results."""
         if self.logger:
             self.logger.debug("开始解析搜索结果页面")
 
@@ -302,12 +302,15 @@ class BaiduScraper(BaseScraper):
 
         data = []
         for result in results:
-            # 提取各种数据
+            # Extract main title and link
             title, url = self.extract_main_title_and_link(result)
+            main_links = [url] if url else []  # List of main links to exclude
+
+            # Extract other data
             content = self.extract_main_content(result)
             source = self.extract_main_source(result)
             time = self.extract_time(result)
-            related_links = self.extract_related_links(result)
+            related_links = self.extract_related_links(result, main_links)
 
             if title or url:
                 data.append(
@@ -369,7 +372,7 @@ class BaiduScraper(BaseScraper):
                 if not content_left:
                     if self.logger:
                         self.logger.error(
-                            f"第 {page+1} 页未找到 'content_left' div，跳过"
+                            f"无正文内容, 可能是百度反爬虫机制导致，跳过第 {page+1} 页"
                         )
                     continue
 
