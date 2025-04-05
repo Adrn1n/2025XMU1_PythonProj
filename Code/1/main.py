@@ -154,7 +154,6 @@ async def run_search(
         results = await scraper.scrape(
             query=query,
             num_pages=pages,
-            no_a_title_tag_strip_n=50,
             cache_to_file=use_cache,
             cache_file=cache_file,
         )

@@ -1,303 +1,331 @@
+from typing import Any, Dict, List, Optional, Tuple
+from bs4 import BeautifulSoup
 import asyncio
+import aiohttp
+from pathlib import Path
 import time
 import random
-import aiohttp
-from bs4 import BeautifulSoup
-from typing import List, Dict, Any, Tuple, Optional
-from pathlib import Path
 
 from scrapers.base_scraper import BaseScraper
-from utils.url_utils import fetch_real_url, batch_fetch_real_urls
+from utils.url_utils import batch_fetch_real_urls
 
 
 class BaiduScraper(BaseScraper):
     """百度搜索结果抓取器"""
 
-    def _parse_results(
-        self, soup: BeautifulSoup, no_a_title_tag_strip_n: int = 50
-    ) -> Tuple[List[Dict[str, Any]], List[str]]:
+    def extract_main_title_and_link(self, result) -> Tuple[str, str]:
+        """提取标题和链接"""
+        title_tag = result.find("h3", class_=lambda x: x and "title" or "t" in x)
+        if title_tag:
+            a_tag = title_tag.find("a")
+            if a_tag:
+                return a_tag.get_text(strip=True), a_tag.get("href", "")
+        return "", ""
+
+    def extract_main_content(self, result) -> str:
+        """提取搜索结果内容摘要"""
+        # 调整选择器顺序和匹配逻辑
+        selectors = [
+            ("span[class*='content-right']", 0),  # 优先匹配包含content-right的span
+            ("div[class*='desc']", 0),
+            ("div[class*='text']", 0),
+            ("span[class*='text']", 0),
+        ]
+
+        for selector, idx in selectors:
+            elements = result.select(selector)
+            if elements:
+                try:
+                    # 取第一个匹配元素的文本
+                    return elements[idx].get_text(strip=True)
+                except IndexError:
+                    continue
+        return ""
+
+    def extract_time(self, result) -> str:
+        """提取时间信息；如果匹配多个返回空"""
+        for selector in ["span[class*='time']", "span.c-color-gray2", "span.n2n9e2q"]:
+            elements = result.select(selector)
+            if elements and selector == "span.c-color-gray2":
+                # 过滤只有class属性且值为c-color-gray2的元素
+                filtered_elements = [
+                    el
+                    for el in elements
+                    if len(el.attrs) == 1 and el.get("class") == ["c-color-gray2"]
+                ]
+                if len(filtered_elements) == 1:  # 确保只有一个匹配项
+                    return filtered_elements[0].get_text(strip=True)
+                elif len(filtered_elements) > 1:  # 如果多个匹配项，返回空
+                    return ""
+            elif elements:
+                if len(elements) == 1:  # 其他选择器也确保只有一个匹配项
+                    return elements[0].get_text(strip=True)
+                elif len(elements) > 1:  # 如果多个匹配项，返回空
+                    return ""
+        return ""
+
+    def extract_source(self, result) -> str:
+        """提取来源信息；如果匹配多个返回空"""
+        for selector in [
+            "div[class*='showurl'], div[class*='source-text']",
+            "span[class*='showurl'], span[class*='source-text'], span.c-color-gray",
+        ]:
+            elements = result.select(selector)
+            if elements:
+                return elements[0].get_text(strip=True) if len(elements) == 1 else ""
+        return ""
+
+    def extract_related_links(self, result) -> List[Dict[str, Any]]:
+        """提取相关链接：遍历结果中的所有a标签，排除主标题链接，提取链接、内容、来源及时间"""
+        related_links = []
+        # 使用更完善的标题匹配条件
+        main_title = result.find(
+            "h3", class_=lambda x: x and any(kw in str(x) for kw in ["title", "t"])
+        )
+
+        for link_tag in result.find_all("a"):
+            if main_title and link_tag in main_title.find_all("a"):
+                continue
+            href = link_tag.get("href", "")
+            title = link_tag.get_text(strip=True)
+
+            # 寻找链接的容器元素 - 优先查找特定类型的容器
+            container = None
+            current = link_tag.parent
+            while current and current != result:
+                if current.name == "div" and current.get("class"):
+                    class_str = " ".join(current.get("class", []))
+                    # 模糊匹配常见的容器类名关键词
+                    if any(
+                        kw in class_str.lower()
+                        for kw in ["item", "container", "result", "sitelink"]
+                    ):
+                        container = current
+                        break
+                current = current.parent
+
+            # 如果没找到特定容器，使用最近的父级div
+            if not container:
+                current = link_tag.parent
+                while current and current != result:
+                    if current.name == "div":
+                        container = current
+                        break
+                    current = current.parent
+
+            # 查找内容
+            content = ""
+            if container:
+                content_selectors = [
+                    "div[class*=text], div[class*=abs], div[class*=desc], div[class*=content]",
+                    "p[class*=text], p[class*=desc], p[class*=content]",
+                    "span[class*=text], span[class*=desc], span[class*=content], span[class*=clamp]",
+                ]
+
+                content_candidates = []
+                for selector in content_selectors:
+                    content_candidates.extend(container.select(selector))
+
+                if content_candidates:
+                    content = content_candidates[0].get_text(strip=True)
+
+            # 查找来源
+            source = ""
+            if container:
+                source_selectors = [
+                    "span[class*=small], span[class*=showurl], span[class*=source-text], span[class*=site-name]",
+                    "div[class*=source-text], div[class*=showurl], div[class*=small]",
+                ]
+
+                for selector in source_selectors:
+                    source_tags = container.select(selector)
+                    if source_tags:
+                        source = source_tags[0].get_text(strip=True)
+                        break
+
+            # 提取时间
+            time_str = self.extract_time(container) if container else ""
+
+            if title or href:
+                related_links.append(
+                    {
+                        "title": title,
+                        "url": href,
+                        "content": content,
+                        "source": source,
+                        "time": time_str,
+                        "more": [],
+                    }
+                )
+        return related_links
+
+    def _initial_deduplicate_results(
+        self, data: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """初步去重：针对原始搜索结果，合并重复的主链接及其相关链接"""
+        main_map = {}
+        for entry in data:
+            key = entry.get("url", "")
+            if not key:
+                continue
+            if key in main_map:
+                existing = main_map[key]
+                # 对主链接，补全缺失字段及合并 title, content 到 more
+                if not existing["title"] and entry["title"]:
+                    existing["title"] = entry["title"]
+                if not existing["content"] and entry["content"]:
+                    existing["content"] = entry["content"]
+                if not existing["source"] and entry["source"]:
+                    existing["source"] = entry["source"]
+                if not existing["time"] and entry["time"]:
+                    existing["time"] = entry["time"]
+                if entry["title"] and entry["content"]:
+                    existing["more"].append({entry["title"]: entry["content"]})
+                existing["related_links"].extend(entry["related_links"])
+            else:
+                main_map[key] = entry
+        results = list(main_map.values())
+        # 针对每个主链接的相关链接做去重：
+        for entry in results:
+            rl_map = {}
+            new_more = entry["more"][:]  # 保留已有的合并信息
+            for rl in entry["related_links"]:
+                rl_key = rl.get("url", "")
+                # 如果相关链接与主链接相同，则合并到主链接上
+                if rl_key == entry.get("url", ""):
+                    if not entry["title"] and rl["title"]:
+                        entry["title"] = rl["title"]
+                    if not entry["content"] and rl["content"]:
+                        entry["content"] = rl["content"]
+                    if rl["title"] and rl["content"]:
+                        new_more.append({rl["title"]: rl["content"]})
+                    continue
+                if rl_key in rl_map:
+                    existing_rl = rl_map[rl_key]
+                    if not existing_rl["title"] and rl["title"]:
+                        existing_rl["title"] = rl["title"]
+                    if not existing_rl["content"] and rl["content"]:
+                        existing_rl["content"] = rl["content"]
+                    if rl["title"] and rl["content"]:
+                        existing_rl["more"].append({rl["title"]: rl["content"]})
+                else:
+                    rl_map[rl_key] = rl
+            entry["related_links"] = list(rl_map.values())
+            entry["more"] = new_more
+        return results
+
+    def _final_deduplicate_results(
+        self, data: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """最终去重：基于真实链接对主链接及其相关链接再次去重"""
+        main_map = {}
+        for entry in data:
+            key = entry.get("url", "")
+            if not key:
+                continue
+            if key in main_map:
+                existing = main_map[key]
+                if not existing["title"] and entry["title"]:
+                    existing["title"] = entry["title"]
+                if not existing["content"] and entry["content"]:
+                    existing["content"] = entry["content"]
+                if not existing["source"] and entry["source"]:
+                    existing["source"] = entry["source"]
+                if not existing["time"] and entry["time"]:
+                    existing["time"] = entry["time"]
+                if entry["title"] and entry["content"]:
+                    existing["more"].append({entry["title"]: entry["content"]})
+                existing["related_links"].extend(entry["related_links"])
+            else:
+                main_map[key] = entry
+        results = list(main_map.values())
+        for entry in results:
+            rl_map = {}
+            new_more = entry["more"][:]
+            for rl in entry["related_links"]:
+                rl_key = rl.get("url", "")
+                if rl_key == entry.get("url", ""):
+                    if not entry["title"] and rl["title"]:
+                        entry["title"] = rl["title"]
+                    if not entry["content"] and rl["content"]:
+                        entry["content"] = rl["content"]
+                    if rl["title"] and rl["content"]:
+                        new_more.append({rl["title"]: rl["content"]})
+                    continue
+                if rl_key in rl_map:
+                    existing_rl = rl_map[rl_key]
+                    if not existing_rl["title"] and rl["title"]:
+                        existing_rl["title"] = rl["title"]
+                    if not existing_rl["content"] and rl["content"]:
+                        existing_rl["content"] = rl["content"]
+                    if rl["title"] and rl["content"]:
+                        existing_rl["more"].append({rl["title"]: rl["content"]})
+                else:
+                    rl_map[rl_key] = rl
+            entry["related_links"] = list(rl_map.values())
+            entry["more"] = new_more
+        return results
+
+    def parse_results(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
+        """解析百度搜索结果"""
         if self.logger:
             self.logger.debug("开始解析搜索结果页面")
 
-        results = soup.select(
-            "div[class*='result'], div[class*='c-container'], article[class*='c-container']"
-        )
+        results = soup.select("div[class*='c-container'][class*='result']")
+        if not results:
+            if self.logger:
+                self.logger.error("未找到任何搜索结果")
+            return []
+        # 处理搜索结果
         if self.logger:
             self.logger.info(f"找到 {len(results)} 个搜索结果")
 
         data = []
-        baidu_links = []
-        seen_entries = set()
+        for result in results:
+            # if "!important" in result.get("style", ""):
+            #     continue (初步过滤掉广告, 测试用, 暂不启用)
 
-        for i, result in enumerate(results):
-            search_data = self._process_normal_result(
-                result, soup, seen_entries, no_a_title_tag_strip_n
-            )
-            if search_data:
-                data.append(search_data["data"])
-                baidu_links.append(search_data["link"])
+            title, url = self.extract_main_title_and_link(result)
+            content = self.extract_main_content(result)
+            source = self.extract_source(result)
+            time = self.extract_time(result)
+            related_links = self.extract_related_links(result)
 
-        return data, baidu_links
+            if title or url:
+                data.append(
+                    {
+                        "title": title,
+                        "url": url,
+                        "content": content,
+                        "source": source,
+                        "time": time,
+                        "more": [],
+                        "related_links": related_links,
+                    }
+                )
 
-    def _process_normal_result(
-        self, result, soup, seen_entries, no_a_title_tag_strip_n
-    ) -> Optional[Dict]:
-        """处理普通搜索结果"""
-        # 优化标题和链接的提取逻辑
-        title, main_link = self._extract_title_and_link(result)
-
-        if not title:
-            title = result.get_text(strip=True)[:no_a_title_tag_strip_n]
-
-        entry_key = (title, main_link)
-        if entry_key in seen_entries or not main_link:
-            if self.logger and title:
-                self.logger.debug(f"跳过重复结果: {title}")
-            return None
-
-        seen_entries.add(entry_key)
-
-        main_link_content = self._extract_content(result)
-        main_link_time = self._extract_time(result)
-        main_link_moreInfo, related_links_data = self._extract_related_links(result)
-
-        if self.logger:
-            self.logger.debug(f"解析普通结果: {title} - {main_link}")
-
-        return {
-            "data": {
-                "title": title,
-                "main_link": None,
-                "main_link_content": main_link_content,
-                "main_link_time": main_link_time,
-                "main_link_moreInfo": main_link_moreInfo,
-                "related_links": related_links_data,
-            },
-            "link": main_link,
-        }
-
-    def _extract_title_and_link(self, result) -> Tuple[str, str]:
-        """提取标题和链接"""
-        title_tag = result.find(
-            "h3",
-            class_=lambda x: x and any(c in x for c in ["t", "c-title"]) if x else True,
-        ) or result.find(
-            "a", class_=lambda x: x and "title" in x.lower() if x else False
-        )
-
-        title = ""
-        main_link = ""
-
-        if title_tag:
-            a_tag = title_tag.find("a") if title_tag.name != "a" else title_tag
-            if a_tag:
-                title = a_tag.get_text(strip=True)
-                if "href" in a_tag.attrs:
-                    main_link = a_tag["href"]
-
-        return title, main_link
-
-    def _extract_content(self, result) -> str:
-        """提取搜索结果内容摘要"""
-        if result.select("div[class*='render-item']"):
-            return ""
-
-        content_selectors = [
-            "span[class*='content-right']",
-            "div[class*='group-sub-abs']",
-            "div[class*='description'], div[class*='desc']",
-            "div[class*='content'], div[class*='cont']",
-            "span[class*='line-clamp'], span[class*='clamp']",
-            "div[class*='abs'], p[class*='abs']",
-            "div[class*='ala-container'] p[class*='paragraph']",
-        ]
-
-        for selector in content_selectors:
-            content = result.select_one(selector)
-            if content:
-                return content.get_text(strip=True)
-        return ""
-
-    def _extract_time(self, result) -> str:
-        """提取搜索结果时间信息"""
-        time_tag = result.select_one("span[class*='time'], span.c-color-gray2")
-        return (
-            time_tag.get_text(strip=True)
-            if time_tag
-            and any(char.isdigit() for char in time_tag.get_text(strip=True))
-            else ""
-        )
-
-    def _extract_related_links(
-        self, result
-    ) -> Tuple[Dict[str, str], List[Dict[str, Any]]]:
-        """提取相关链接和主链接的额外信息"""
-        main_link_moreInfo = {}
-        related_links = []
-
-        sitelink_container = result.select_one("div[class*='sitelink']")
-        if sitelink_container:
-            for summary in sitelink_container.select("div[class*='summary']"):
-                link_tag = summary.select_one("a")
-                if link_tag and link_tag.get("href"):
-                    href = link_tag.get("href")
-                    text = link_tag.get_text(strip=True)
-                    if text:
-                        content = summary.select_one(
-                            "p.c-color-text, p[class*='line-clamp']"
-                        )
-                        related_links.append(
-                            {
-                                "text": text,
-                                "href": href,
-                                "content": (
-                                    content.get_text(strip=True) if content else ""
-                                ),
-                                "time": "",
-                            }
-                        )
-
-        news_items = result.select("[class*='item'], [class*='content']")
-        for item in news_items:
-            title_link = item.select_one("a[class*='title'], a[class*='sub-title']")
-            if title_link and title_link.get("href"):
-                href = title_link.get("href")
-                text = title_link.get_text(strip=True)
-                if text:
-                    related_links.append(
-                        {
-                            "text": text,
-                            "href": href,
-                            "content": self._extract_content(item),
-                            "time": self._extract_time(item),
-                        }
-                    )
-
-        return main_link_moreInfo, related_links
-
-    def _normalize_url(self, url: str) -> str:
-        """简化的URL规范化方法"""
-        if not url or isinstance(url, Exception):
-            return ""
-        if url.startswith("/"):
-            url = f"https://www.baidu.com{url}"
-        if "://" in url:
-            url = url.split("://", 1)[1]
-        url = url.lower().rstrip("/")
-        if url.startswith("www."):
-            url = url[4:]
-        return url
-
-    def _merge_entries(self, target: Dict[str, Any], source: Dict[str, Any]) -> None:
-        """合并两个搜索结果条目"""
-        if len(source.get("title", "")) > len(target.get("title", "")):
-            target["title"] = source["title"]
-        source_content = source.get("main_link_content", "")
-        if source_content and (
-            not target.get("main_link_content")
-            or len(source_content) > len(target["main_link_content"])
-        ):
-            target["main_link_content"] = source_content
-        source_time = source.get("main_link_time", "")
-        if source_time and not target.get("main_link_time"):
-            target["main_link_time"] = source_time
-        for k, v in source.get("main_link_moreInfo", {}).items():
-            if k not in target.get("main_link_moreInfo", {}) or len(v) > len(
-                target["main_link_moreInfo"][k]
-            ):
-                target["main_link_moreInfo"][k] = v
-        target["related_links"].extend(source.get("related_links", []))
-
-    def _initial_deduplicate(
-        self, data: List[Dict[str, Any]], baidu_links: List[str]
-    ) -> List[Dict[str, Any]]:
-        """优化的初步去重方法"""
-        if not data:
-            return []
-        if self.logger:
-            self.logger.info("开始进行初步去重处理")
-
-        processed_data = []
-        for i, entry in enumerate(data):
-            if i >= len(baidu_links):
-                continue
-            baidu_link = baidu_links[i]
-            if baidu_link.startswith("/"):
-                baidu_link = f"https://www.baidu.com{baidu_link}"
-            # 简化相关链接的绝对化
-            entry_copy = entry.copy()
-            entry_copy["main_link"] = baidu_link
-            entry_copy["related_links"] = [
-                {
-                    **link,
-                    "href": (
-                        f"https://www.baidu.com{link['href']}"
-                        if link["href"].startswith("/")
-                        else link["href"]
-                    ),
-                }
-                for link in entry.get("related_links", [])
-            ]
-            processed_data.append(entry_copy)
-
-        unique_entries = {}
-        for entry in processed_data:
-            norm_url = self._normalize_url(entry["main_link"])
-            title = entry.get("title", "").lower()
-            merged = False
-            for key, existing in list(unique_entries.items()):
-                existing_title = existing.get("title", "").lower()
-                if (
-                    title
-                    and existing_title
-                    and (
-                        title == existing_title
-                        or (
-                            len(title) > 10
-                            and len(existing_title) > 10
-                            and (title in existing_title or existing_title in title)
-                        )
-                    )
-                ):
-                    self._merge_entries(existing, entry)
-                    merged = True
-                    break
-            if not merged:
-                unique_entries[norm_url] = entry
-
-        result = list(unique_entries.values())
-        if self.logger:
-            self.logger.info(f"初步去重完成: {len(data)} → {len(result)}")
-        return result
+        return self._initial_deduplicate_results(data)
 
     async def _process_real_urls(
-        self,
-        session: aiohttp.ClientSession,
-        data: List[Dict[str, Any]],
-        baidu_links: List[str],
+        self, session: aiohttp.ClientSession, data: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """优化的URL处理方法"""
-        if not baidu_links:
-            return data
-        if self.logger:
-            self.logger.info(f"开始处理 {len(baidu_links)} 个中转链接")
-
-        data = self._initial_deduplicate(data, baidu_links)
-        if self.logger:
-            self.logger.info(f"预处理后需要处理 {len(data)} 个结果")
+        """处理百度跳转链接，获取真实URL"""
+        if not data:
+            return []
 
         all_links = []
         link_map = {}
         for i, entry in enumerate(data):
-            main_link = entry.get("main_link")
-            if main_link:
-                all_links.append(main_link)
+            if entry["url"]:
+                all_links.append(entry["url"])
                 link_map[(i, "main")] = len(all_links) - 1
-            for j, link in enumerate(entry.get("related_links", [])):
-                href = link.get("href")
-                if href and href not in all_links:
-                    all_links.append(href)
+            for j, link in enumerate(entry["related_links"]):
+                if link["url"]:
+                    all_links.append(link["url"])
                     link_map[(i, j)] = len(all_links) - 1
+
+        if not all_links:
+            return data
 
         semaphore = asyncio.Semaphore(self.max_semaphore)
         headers = {k: v for k, v in self.headers.items() if k != "Cookie"}
@@ -307,7 +335,7 @@ class BaiduScraper(BaseScraper):
             all_links,
             headers,
             self.proxies,
-            "https://www.baidu.com",  # 基准URL参数
+            "https://www.baidu.com",
             semaphore,
             self.timeout,
             self.retries,
@@ -322,61 +350,16 @@ class BaiduScraper(BaseScraper):
         for (i, pos), url_idx in link_map.items():
             if url_idx < len(real_urls):
                 if pos == "main":
-                    data[i]["main_link"] = real_urls[url_idx]
+                    data[i]["url"] = real_urls[url_idx]
                 else:
-                    data[i]["related_links"][pos]["href"] = real_urls[url_idx]
+                    data[i]["related_links"][pos]["url"] = real_urls[url_idx]
 
-        return await self._deduplicate_results(data)
-
-    async def _deduplicate_results(
-        self, data: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """优化的精确去重方法"""
-        if not data:
-            return []
-        if self.logger:
-            self.logger.info("开始进行精确去重处理")
-
-        unique_data = {}
-        for entry in data:
-            main_url = entry.get("main_link")
-            if isinstance(main_url, Exception) or not main_url:
-                continue
-            norm_url = self._normalize_url(main_url)
-            if not norm_url:
-                continue
-            if norm_url in unique_data:
-                self._merge_entries(unique_data[norm_url], entry)
-            else:
-                entry_copy = entry.copy()
-                entry_copy["main_link"] = main_url
-                unique_data[norm_url] = entry_copy
-
-        for url, entry in unique_data.items():
-            seen_rel_urls = set()
-            filtered_links = []
-            for link in entry.get("related_links", []):
-                rel_url = link.get("href")
-                if isinstance(rel_url, Exception) or not rel_url:
-                    continue
-                norm_rel_url = self._normalize_url(rel_url)
-                if not norm_rel_url or norm_rel_url == url:
-                    continue
-                if norm_rel_url not in seen_rel_urls:
-                    seen_rel_urls.add(norm_rel_url)
-                    filtered_links.append(link)
-            entry["related_links"] = filtered_links
-
-        result = list(unique_data.values())
-        if self.logger:
-            self.logger.info(f"精确去重完成: {len(data)} → {len(result)}")
-        return result
+        return self._final_deduplicate_results(data)
 
     async def scrape(
         self,
         query: str,
         num_pages: int = 1,
-        no_a_title_tag_strip_n: int = 50,
         cache_to_file: bool = True,
         cache_file: Optional[Path] = None,
     ) -> List[Dict[str, Any]]:
@@ -396,25 +379,17 @@ class BaiduScraper(BaseScraper):
                 params = {
                     "wd": query,
                     "pn": str(page_start),
-                    "oq": query,
                     "ie": "utf-8",
                     "usm": "1",
                     "rsv_pq": str(int(time.time() * 1000)),
-                    "rsv_t": "dc31ReKVFdLpfLEdVpJPPVYuKsRKX4AuOEpIA1daCjmCovnbj7QfeLKQKw",
-                    "rqlang": "cn",
-                    "rsv_enter": "1",
-                    "rsv_dl": "tb",
+                    "rsv_t": str(int(time.time() * 1000)),
                 }
-
-                current_headers = self.headers.copy()
-                if "Referer" in current_headers:
-                    current_headers["Referer"] = "https://www.baidu.com/"
 
                 html_content = await self.get_page(
                     url="https://www.baidu.com/s",
                     params=params,
                     use_proxy=self.use_proxy,
-                    headers=current_headers,
+                    headers=self.headers,
                 )
                 if not html_content:
                     if self.logger:
@@ -422,15 +397,17 @@ class BaiduScraper(BaseScraper):
                     continue
 
                 soup = BeautifulSoup(html_content, "html.parser")
-                data, baidu_links = self._parse_results(soup, no_a_title_tag_strip_n)
-                if not data:
+                content_left = soup.find("div", id="content_left")
+                if not content_left:
                     if self.logger:
-                        self.logger.warning(f"第 {page+1} 页未发现搜索结果")
+                        self.logger.error(
+                            f"第 {page+1} 页未找到 'content_left' div，跳过"
+                        )
                     continue
-                processed_data = await self._process_real_urls(
-                    session, data, baidu_links
-                )
-                all_results.extend(processed_data)
+
+                page_results = self.parse_results(content_left)
+                processed_results = await self._process_real_urls(session, page_results)
+                all_results.extend(processed_results)
 
                 if page < num_pages - 1:
                     delay = random.uniform(1.0, 2.0)
@@ -447,8 +424,5 @@ class BaiduScraper(BaseScraper):
         if self.logger:
             self.logger.info(
                 f"搜索完成，共获取 {len(all_results)} 个结果，耗时 {elapsed:.2f} 秒"
-            )
-            self.logger.info(
-                f"缓存命中率：{self.url_cache.hits}/{self.url_cache.hits + self.url_cache.misses}"
             )
         return all_results
