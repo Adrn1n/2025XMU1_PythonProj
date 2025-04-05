@@ -16,9 +16,9 @@ class BaiduScraper(BaseScraper):
     # CSS selectors for extracting content
     TITLE_SELECTORS = ["h3[class*='title']", "h3[class*='t']"]
     CONTENT_SELECTORS = [
-        "span[class*='content-right']",
         "div[class*='desc']",
         "div[class*='text']",
+        "span[class*='content-right']",
         "span[class*='text']",
     ]
     SOURCE_SELECTORS = [
@@ -39,10 +39,10 @@ class BaiduScraper(BaseScraper):
     def extract_main_title_and_link(self, result) -> Tuple[str, str]:
         """
         Extract title and link from search result
-        
+
         Args:
             result: BeautifulSoup element representing a search result
-            
+
         Returns:
             Tuple of (title, link URL)
         """
@@ -57,10 +57,10 @@ class BaiduScraper(BaseScraper):
     def extract_main_content(self, result) -> str:
         """
         Extract content summary from search result
-        
+
         Args:
             result: BeautifulSoup element representing a search result
-            
+
         Returns:
             Content text
         """
@@ -73,10 +73,10 @@ class BaiduScraper(BaseScraper):
     def extract_main_source(self, result) -> str:
         """
         Extract source information; returns empty if multiple matches
-        
+
         Args:
             result: BeautifulSoup element representing a search result
-            
+
         Returns:
             Source text or empty string
         """
@@ -89,10 +89,10 @@ class BaiduScraper(BaseScraper):
     def extract_time(self, result) -> str:
         """
         Extract time information; returns empty if multiple matches
-        
+
         Args:
             result: BeautifulSoup element representing a search result
-            
+
         Returns:
             Time string or empty string
         """
@@ -125,11 +125,11 @@ class BaiduScraper(BaseScraper):
     def find_link_container(self, link_tag, result):
         """
         Find the container element for a link
-        
+
         Args:
             link_tag: The link tag to find container for
             result: The parent search result element
-            
+
         Returns:
             Container element or None
         """
@@ -162,11 +162,11 @@ class BaiduScraper(BaseScraper):
     def extract_from_container(self, container, selectors):
         """
         Extract text from specified elements within a container
-        
+
         Args:
             container: Container element to search within
             selectors: List of CSS selectors to try
-            
+
         Returns:
             Extracted text or empty string
         """
@@ -184,11 +184,11 @@ class BaiduScraper(BaseScraper):
     ) -> List[Dict[str, Any]]:
         """
         Extract related links from a result, excluding provided main links
-        
+
         Args:
             result: BeautifulSoup object representing a search result
             main_links: List of main link URLs to exclude
-            
+
         Returns:
             List of dictionaries with related link details
         """
@@ -234,7 +234,7 @@ class BaiduScraper(BaseScraper):
     def merge_entries(self, target, source):
         """
         Merge two entries, combining source content into target
-        
+
         Args:
             target: Target entry to merge into
             source: Source entry to merge from
@@ -260,10 +260,10 @@ class BaiduScraper(BaseScraper):
     def deduplicate_results(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Deduplicate processing: merge duplicate main links and their related links
-        
+
         Args:
             data: List of search result entries
-            
+
         Returns:
             Deduplicated list of entries
         """
@@ -313,10 +313,10 @@ class BaiduScraper(BaseScraper):
     ) -> List[Dict[str, Any]]:
         """
         Preliminary deduplication
-        
+
         Args:
             data: List of search result entries
-            
+
         Returns:
             Initially deduplicated results
         """
@@ -327,10 +327,10 @@ class BaiduScraper(BaseScraper):
     ) -> List[Dict[str, Any]]:
         """
         Final deduplication based on real URLs
-        
+
         Args:
             data: List of search result entries
-            
+
         Returns:
             Finally deduplicated results
         """
@@ -341,11 +341,11 @@ class BaiduScraper(BaseScraper):
     ) -> List[Dict[str, Any]]:
         """
         Process Baidu redirect links to get real URLs
-        
+
         Args:
             session: Active client session
             data: List of search result entries
-            
+
         Returns:
             List of entries with resolved URLs
         """
@@ -444,7 +444,9 @@ class BaiduScraper(BaseScraper):
     ) -> List[Dict[str, Any]]:
         start_time = time.time()
         if self.logger:
-            self.logger.info(f"【BAIDU】Scraping started for query: '{query}', pages: {num_pages}")
+            self.logger.info(
+                f"【BAIDU】Scraping started for query: '{query}', pages: {num_pages}"
+            )
         all_results = []
 
         async with aiohttp.ClientSession() as session:
@@ -473,7 +475,10 @@ class BaiduScraper(BaseScraper):
                         self.logger.error(f"Failed to get page {page+1}, skipping")
                     continue
 
-                soup = BeautifulSoup(html_content, "html.parser")
+                # soup = BeautifulSoup(html_content, "html.parser")
+                soup = BeautifulSoup(
+                    html_content, "lxml"
+                )  # Use lxml parser for better performance
                 content_left = soup.find("div", id="content_left")
                 if not content_left:
                     if self.logger:
@@ -489,7 +494,9 @@ class BaiduScraper(BaseScraper):
                 if page < num_pages - 1:
                     delay = random.uniform(self.min_sleep, self.max_sleep)
                     if self.logger:
-                        self.logger.debug(f"Waiting {delay:.2f}s before scraping next page")
+                        self.logger.debug(
+                            f"Waiting {delay:.2f}s before scraping next page"
+                        )
                     await asyncio.sleep(delay)
 
         if cache_to_file and cache_file:
@@ -499,5 +506,7 @@ class BaiduScraper(BaseScraper):
 
         elapsed = time.time() - start_time
         if self.logger:
-            self.logger.info(f"【BAIDU】Search completed, retrieved {len(all_results)} results, elapsed time: {elapsed:.2f}s")
+            self.logger.info(
+                f"【BAIDU】Search completed, retrieved {len(all_results)} results, elapsed time: {elapsed:.2f}s"
+            )
         return all_results
