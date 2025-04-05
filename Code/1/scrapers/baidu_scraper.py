@@ -66,10 +66,28 @@ class BaiduScraper(BaseScraper):
         """提取时间信息；如果匹配多个返回空"""
         for selector in self.TIME_SELECTORS:
             elements = result.select(selector)
-            if len(elements) == 1:
-                return elements[0].get_text(strip=True)
-            elif len(elements) > 1:
-                return ""
+            if not elements:
+                continue
+
+            # 特殊处理c-color-gray2选择器
+            if selector == "span.c-color-gray2":
+                # 过滤仅包含class属性且值为c-color-gray2的元素
+                filtered_elements = [
+                    el
+                    for el in elements
+                    if len(el.attrs) == 1 and el.get("class") == ["c-color-gray2"]
+                ]
+                if len(filtered_elements) == 1:
+                    return filtered_elements[0].get_text(strip=True)
+                elif len(filtered_elements) > 1:
+                    return ""
+            # 其他选择器保持原有逻辑
+            else:
+                if len(elements) == 1:
+                    return elements[0].get_text(strip=True)
+                elif len(elements) > 1:
+                    return ""
+
         return ""
 
     def find_link_container(self, link_tag, result):
@@ -381,7 +399,7 @@ class BaiduScraper(BaseScraper):
                 all_results.extend(processed_results)
 
                 if page < num_pages - 1:
-                    delay = random.uniform(1.0, 2.0)
+                    delay = random.uniform(self.min_sleep, self.max_sleep)
                     if self.logger:
                         self.logger.debug(f"等待 {delay:.2f} 秒后抓取下一页")
                     await asyncio.sleep(delay)
