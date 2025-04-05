@@ -8,24 +8,24 @@ from utils.config_manager import ConfigManager, DEFAULT_CONFIG_TEMPLATES
 
 T = TypeVar("T")
 
-# 创建日志记录器
+# Create logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# 初始化配置管理器
+# Initialize configuration manager
 config_manager = ConfigManager()
-config_manager.ensure_default_configs()  # 确保默认配置存在
+config_manager.ensure_default_configs()  # Ensure default configurations exist
 
-# 从配置文件加载路径配置
+# Load path configurations from config files
 paths_config = config_manager.load_config("paths", DEFAULT_CONFIG_TEMPLATES["paths"])
 files_config = config_manager.load_config("files", DEFAULT_CONFIG_TEMPLATES["files"])
 
-# 创建实际路径对象
+# Create actual path objects
 paths = {key: Path(value) for key, value in paths_config.items()}
 files = {}
 for key, value in files_config.items():
     base_path = Path(value)
-    # 如果是相对路径，则基于相应目录
+    # If it's a relative path, base it on the corresponding directory
     if not base_path.is_absolute() and key.endswith("_file"):
         dir_key = f"{key.rsplit('_', 1)[0]}_dir"
         if dir_key in paths:
@@ -35,18 +35,18 @@ for key, value in files_config.items():
     else:
         files[key] = base_path
 
-# 确保所有目录都存在
+# Ensure all directories exist
 for key, path in paths.items():
     if key.endswith("_dir") and not path.exists():
         try:
             path.mkdir(parents=True, exist_ok=True)
-            logger.debug(f"创建目录: {path}")
+            logger.debug(f"【CONFIG】Created directory: {path}")
         except Exception as e:
-            logger.error(f"创建目录失败: {path}, 错误: {e}")
+            logger.error(f"【CONFIG】Failed to create directory: {path}, error: {e}")
 
 
 def parse_cookies(line: str) -> Dict[str, str]:
-    """解析cookie行"""
+    """Parse cookie line"""
     cookies_dict = {}
     for cookie in line.split("; "):
         if "=" in cookie:
@@ -56,16 +56,24 @@ def parse_cookies(line: str) -> Dict[str, str]:
 
 
 def load_http_headers(file_path: Path) -> List[Dict[str, str]]:
-    """加载HTTP请求头信息"""
+    """
+    Load HTTP headers information
+
+    Args:
+        file_path: Path to headers file
+
+    Returns:
+        List of header dictionaries
+    """
     try:
         if not file_path.exists():
-            logger.debug(f"HTTP头文件不存在: {file_path}")
+            logger.debug(f"HTTP headers file does not exist: {file_path}")
             return []
 
         with file_path.open("r", encoding="utf-8") as f:
             content = f.read()
 
-        # 按空行分隔头信息块
+        # Split by blank lines to separate header blocks
         header_blocks = [
             block.strip() for block in content.split("\n\n") if block.strip()
         ]
@@ -76,7 +84,7 @@ def load_http_headers(file_path: Path) -> List[Dict[str, str]]:
         for block in header_blocks:
             headers_dict = {}
             lines = block.splitlines()
-            for line in lines[1:]:  # 跳过第一行
+            for line in lines[1:]:  # Skip first line
                 if ": " in line:
                     key, value = line.split(": ", 1)
                     if key.lower() == "cookie":
@@ -87,23 +95,31 @@ def load_http_headers(file_path: Path) -> List[Dict[str, str]]:
                 headers_list.append(headers_dict)
         return headers_list
     except Exception as e:
-        logger.error(f"加载HTTP头文件失败: {file_path}, 错误: {e}")
+        logger.error(f"Failed to load HTTP headers file: {file_path}, error: {e}")
         return []
 
 
 def load_file_lines(file_path: Path) -> List[str]:
-    """加载文件行"""
+    """
+    Load lines from a file
+
+    Args:
+        file_path: Path to the file
+
+    Returns:
+        List of non-empty lines
+    """
     try:
         if not file_path.exists():
             return []
         with file_path.open("r", encoding="utf-8") as f:
             return [line.strip() for line in f if line.strip()]
     except Exception as e:
-        logger.error(f"加载文件失败: {file_path}, 错误: {e}")
+        logger.error(f"Failed to load file: {file_path}, error: {e}")
         return []
 
 
-# 加载HTTP头和代理
+# Load HTTP headers and proxies
 headers_list = load_http_headers(files.get("headers_file", Path("config/headers.txt")))
 if headers_list:
     headers_item = random.choice(headers_list)
@@ -116,12 +132,12 @@ else:
 proxy_list = load_file_lines(files.get("proxy_file", Path("config/proxy.txt")))
 proxy = random.choice(proxy_list) if proxy_list else None
 
-# 加载爬虫配置
+# Load scraper configuration
 scraper_config = config_manager.load_config(
     "scraper", DEFAULT_CONFIG_TEMPLATES["scraper"]
 )
 
-# 构建最终统一配置
+# Build final unified configuration
 CONFIG = {
     "paths": paths,
     "files": files,
@@ -132,7 +148,7 @@ CONFIG = {
     "scraper": scraper_config,
 }
 
-# 导出常用配置项，保持向后兼容性
+# Export commonly used configuration items, maintain backward compatibility
 HEADERS_FILE = files.get("headers_file")
 PROXY_FILE = files.get("proxy_file")
 SEARCH_CACHE_FILE = files.get("search_cache_file")

@@ -3,10 +3,10 @@ from typing import Any, Dict, List, Optional, Union
 from pathlib import Path
 import json
 
-# 创建日志记录器
+# Create logger
 logger = logging.getLogger(__name__)
 
-# 默认配置模板
+# Default configuration templates
 DEFAULT_CONFIG_TEMPLATES = {
     "paths": {
         "config_dir": "config",
@@ -38,7 +38,7 @@ DEFAULT_CONFIG_TEMPLATES = {
     },
 }
 
-# 默认HTTP请求头模板
+# Default HTTP headers template
 HEADERS_TEMPLATE = """
 GET / HTTP/1.1
 Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7
@@ -63,50 +63,50 @@ sec-ch-ua-platform: "Windows"
 
 
 class ConfigManager:
-    """配置管理器，用于统一管理项目配置"""
+    """Configuration manager for unified project configuration management"""
 
     def __init__(
         self, config_dir: Union[str, Path] = "config", create_if_missing: bool = True
     ):
         """
-        初始化配置管理器
+        Initialize configuration manager
 
         Args:
-            config_dir: 配置目录路径
-            create_if_missing: 配置目录不存在时是否创建
+            config_dir: Configuration directory path
+            create_if_missing: Whether to create the directory if it doesn't exist
         """
         self.config_dir = Path(config_dir)
         self.config_cache: Dict[str, Dict[str, Any]] = {}
 
-        # 如果需要且目录不存在，则创建配置目录
+        # Create configuration directory if needed and it doesn't exist
         if create_if_missing and not self.config_dir.exists():
             try:
                 self.config_dir.mkdir(parents=True, exist_ok=True)
-                logger.info(f"创建配置目录: {self.config_dir}")
+                logger.info(f"Created configuration directory: {self.config_dir}")
             except Exception as e:
-                logger.error(f"创建配置目录失败: {e}")
+                logger.error(f"Failed to create configuration directory: {e}")
 
     def get_config_path(self, name: str) -> Path:
         """
-        获取配置文件路径
+        Get configuration file path
 
         Args:
-            name: 配置名称（不含.json后缀）
+            name: Configuration name (without .json extension)
 
         Returns:
-            配置文件路径
+            Configuration file path
         """
         return self.config_dir / f"{name}.json"
 
     def config_exists(self, name: str) -> bool:
         """
-        检查配置文件是否存在
+        Check if configuration file exists
 
         Args:
-            name: 配置名称
+            name: Configuration name
 
         Returns:
-            配置文件是否存在
+            Whether the configuration file exists
         """
         return self.get_config_path(name).exists()
 
@@ -114,62 +114,62 @@ class ConfigManager:
         self, name: str, default: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        加载配置文件
+        Load configuration file
 
         Args:
-            name: 配置名称（不含.json后缀）
-            default: 配置不存在时的默认值
+            name: Configuration name (without .json extension)
+            default: Default value if configuration doesn't exist
 
         Returns:
-            配置字典
+            Configuration dictionary
         """
-        # 如果配置已缓存，直接返回
+        # If configuration is cached, return directly
         if name in self.config_cache:
             return self.config_cache[name]
 
-        # 获取配置文件路径
+        # Get configuration file path
         config_path = self.get_config_path(name)
 
-        # 如果配置文件不存在，返回默认值
+        # If configuration file doesn't exist, return default value
         if not config_path.exists():
-            logger.debug(f"配置文件不存在: {config_path}")
+            logger.debug(f"Configuration file doesn't exist: {config_path}")
             return {} if default is None else default
 
-        # 尝试加载配置
+        # Try to load configuration
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
 
-            # 缓存并返回配置
+            # Cache and return configuration
             self.config_cache[name] = config
-            logger.debug(f"成功加载配置: {name}")
+            logger.debug(f"Successfully loaded configuration: {name}")
             return config
 
         except json.JSONDecodeError as e:
-            logger.error(f"解析配置文件失败: {config_path}, 错误: {e}")
+            logger.error(f"Failed to parse configuration file: {config_path}, error: {e}")
             return {} if default is None else default
         except Exception as e:
-            logger.error(f"加载配置文件失败: {config_path}, 错误: {e}")
+            logger.error(f"Failed to load configuration file: {config_path}, error: {e}")
             return {} if default is None else default
 
     def get(self, name: str, key: str, default: Any = None) -> Any:
         """
-        获取配置项
+        Get configuration item
 
         Args:
-            name: 配置名称
-            key: 配置项键或路径（使用.分隔，如'server.host'）
-            default: 默认值
+            name: Configuration name
+            key: Configuration item key or path (use . for nested, e.g., 'server.host')
+            default: Default value
 
         Returns:
-            配置值
+            Configuration value
         """
         config = self.load_config(name)
 
-        # 处理嵌套键
+        # Handle nested keys
         if "." in key:
             parts = key.split(".")
-            # 递归获取嵌套值
+            # Recursively get nested value
             value = config
             for part in parts:
                 if not isinstance(value, dict) or part not in value:
@@ -181,10 +181,10 @@ class ConfigManager:
 
     def get_all_configs(self) -> List[str]:
         """
-        获取所有可用的配置名称
+        Get all available configuration names
 
         Returns:
-            配置名称列表
+            List of configuration names
         """
         configs = []
         for file in self.config_dir.glob("*.json"):
@@ -195,19 +195,19 @@ class ConfigManager:
         self, base: Dict[str, Any], override: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        深度合并两个配置字典
+        Deep merge two configuration dictionaries
 
         Args:
-            base: 基础配置
-            override: 要覆盖的配置
+            base: Base configuration
+            override: Configuration to override
 
         Returns:
-            合并后的配置
+            Merged configuration
         """
         result = base.copy()
 
         for key, value in override.items():
-            # 如果两边都是字典，则递归合并
+            # If both sides are dictionaries, recursively merge
             if (
                 key in result
                 and isinstance(result[key], dict)
@@ -215,7 +215,7 @@ class ConfigManager:
             ):
                 result[key] = self.deep_merge(result[key], value)
             else:
-                # 否则直接覆盖
+                # Otherwise directly override
                 result[key] = value
 
         return result
@@ -224,75 +224,75 @@ class ConfigManager:
         self, name: str, config: Dict[str, Any], merge: bool = False
     ) -> bool:
         """
-        保存配置到文件
+        Save configuration to file
 
         Args:
-            name: 配置名称
-            config: 配置字典
-            merge: 是否合并现有配置
+            name: Configuration name
+            config: Configuration dictionary
+            merge: Whether to merge with existing configuration
 
         Returns:
-            是否保存成功
+            Whether saving was successful
         """
-        # 确保配置目录存在
+        # Ensure configuration directory exists
         self.config_dir.mkdir(parents=True, exist_ok=True)
 
-        # 获取配置文件路径
+        # Get configuration file path
         config_path = self.get_config_path(name)
 
-        # 如果需要合并，先加载现有配置
+        # If merging is required, load existing configuration first
         if merge and config_path.exists():
             try:
                 with open(config_path, "r", encoding="utf-8") as f:
                     existing_config = json.load(f)
-                # 深度合并配置
+                # Deep merge configurations
                 merged_config = self.deep_merge(existing_config, config)
                 config = merged_config
             except Exception as e:
-                logger.warning(f"合并配置失败: {e}, 将直接覆盖")
+                logger.warning(f"Configuration merge failed: {e}, will directly overwrite")
 
-        # 保存配置
+        # Save configuration
         try:
             with open(config_path, "w", encoding="utf-8") as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
 
-            # 更新缓存
+            # Update cache
             self.config_cache[name] = config
-            logger.debug(f"成功保存配置: {name}")
+            logger.debug(f"Successfully saved configuration: {name}")
             return True
 
         except Exception as e:
-            logger.error(f"保存配置文件失败: {config_path}, 错误: {e}")
+            logger.error(f"Failed to save configuration file: {config_path}, error: {e}")
             return False
 
     def set(self, name: str, key: str, value: Any, create_parents: bool = True) -> bool:
         """
-        设置配置项
+        Set configuration item
 
         Args:
-            name: 配置名称
-            key: 配置项键或路径（使用.分隔，如'server.host'）
-            value: 配置值
-            create_parents: 是否创建不存在的父级配置
+            name: Configuration name
+            key: Configuration item key or path (use . for nested, e.g., 'server.host')
+            value: Configuration value
+            create_parents: Whether to create non-existent parent configurations
 
         Returns:
-            是否保存成功
+            Whether setting was successful
         """
         config = self.load_config(name)
 
-        # 处理嵌套键
+        # Handle nested keys
         if "." in key:
             parts = key.split(".")
             last_key = parts.pop()
 
-            # 递归查找或创建父级配置
+            # Recursively find or create parent configurations
             current = config
             for part in parts:
                 if part not in current or not isinstance(current[part], dict):
                     if create_parents:
                         current[part] = {}
                     else:
-                        logger.error(f"父级配置不存在: {part}")
+                        logger.error(f"Parent configuration does not exist: {part}")
                         return False
                 current = current[part]
 
@@ -304,75 +304,75 @@ class ConfigManager:
 
     def ensure_default_configs(self) -> bool:
         """
-        确保所有默认配置文件存在，不存在则创建
+        Ensure all default configuration files exist, create if missing
 
         Returns:
-            是否成功创建所有配置
+            Whether all configurations were successfully created
         """
         success = True
 
-        # 创建基础目录
+        # Create base directories with standardized logging
         paths_config = DEFAULT_CONFIG_TEMPLATES["paths"]
         for dir_name in paths_config.values():
             path = Path(dir_name)
             if not path.exists():
                 try:
                     path.mkdir(parents=True, exist_ok=True)
-                    logger.debug(f"创建目录: {path}")
+                    logger.debug(f"【CONFIG_MANAGER】Created directory: {path}")
                 except Exception as e:
-                    logger.error(f"创建目录失败: {path}, 错误: {e}")
+                    logger.error(f"【CONFIG_MANAGER】Failed to create directory: {path}, error: {e}")
                     success = False
 
-        # 写入配置文件
+        # Write configuration files
         for name, config in DEFAULT_CONFIG_TEMPLATES.items():
             if not self.config_exists(name):
                 if not self.save_config(name, config):
-                    logger.error(f"创建默认配置失败: {name}")
+                    logger.error(f"【CONFIG_MANAGER】Failed to create default configuration: {name}")
                     success = False
                 else:
-                    logger.debug(f"已创建默认配置: {name}")
+                    logger.debug(f"【CONFIG_MANAGER】Created default configuration: {name}")
             else:
-                logger.debug(f"配置已存在，跳过创建: {name}")
+                logger.debug(f"【CONFIG_MANAGER】Configuration already exists, skipping creation: {name}")
 
-        # 创建默认的headers.txt
+        # Create default headers.txt
         headers_path = Path(paths_config["config_dir"]) / "headers.txt"
         if not headers_path.exists():
             try:
                 with open(headers_path, "w", encoding="utf-8") as f:
                     f.write(HEADERS_TEMPLATE)
-                logger.debug(f"已创建默认headers文件: {headers_path}")
+                logger.debug(f"Created default headers file: {headers_path}")
             except Exception as e:
-                logger.error(f"创建headers文件失败: {headers_path}, 错误: {e}")
+                logger.error(f"Failed to create headers file: {headers_path}, error: {e}")
                 success = False
 
-        # 创建空的代理文件
+        # Create empty proxy file
         proxy_path = Path(paths_config["config_dir"]) / "proxy.txt"
         if not proxy_path.exists():
             try:
                 with open(proxy_path, "w", encoding="utf-8") as f:
                     f.write(
-                        "# 每行一个代理，格式: http://host:port 或 https://host:port\n"
+                        "# One proxy per line, format: http://host:port or https://host:port\n"
                     )
-                logger.debug(f"已创建默认proxy文件: {proxy_path}")
+                logger.debug(f"Created default proxy file: {proxy_path}")
             except Exception as e:
-                logger.error(f"创建proxy文件失败: {proxy_path}, 错误: {e}")
+                logger.error(f"Failed to create proxy file: {proxy_path}, error: {e}")
                 success = False
 
         return success
 
     def delete(self, name: str, key: Optional[str] = None) -> bool:
         """
-        删除配置项或整个配置文件
+        Delete configuration item or entire configuration file
 
         Args:
-            name: 配置名称
-            key: 要删除的配置项键（None表示删除整个配置文件）
+            name: Configuration name
+            key: Configuration item key to delete (None means delete entire configuration file)
 
         Returns:
-            是否删除成功
+            Whether deletion was successful
         """
         if key is None:
-            # 删除整个配置文件
+            # Delete entire configuration file
             config_path = self.get_config_path(name)
             if not config_path.exists():
                 return True
@@ -381,27 +381,27 @@ class ConfigManager:
                 config_path.unlink()
                 if name in self.config_cache:
                     del self.config_cache[name]
-                logger.debug(f"删除配置文件: {config_path}")
+                logger.debug(f"Deleted configuration file: {config_path}")
                 return True
             except Exception as e:
-                logger.error(f"删除配置文件失败: {config_path}, 错误: {e}")
+                logger.error(f"Failed to delete configuration file: {config_path}, error: {e}")
                 return False
         else:
-            # 删除特定配置项
+            # Delete specific configuration item
             config = self.load_config(name)
             if not config:
                 return True
 
             if "." in key:
-                # 处理嵌套键
+                # Handle nested keys
                 parts = key.split(".")
                 last_key = parts.pop()
 
-                # 递归查找父级配置
+                # Recursively find parent configuration
                 current = config
                 for part in parts:
                     if part not in current or not isinstance(current[part], dict):
-                        return True  # 父级不存在，视为删除成功
+                        return True  # Parent doesn't exist, consider deletion successful
                     current = current[part]
 
                 if last_key in current:
@@ -414,14 +414,14 @@ class ConfigManager:
 
     def clear_cache(self, name: Optional[str] = None) -> None:
         """
-        清除配置缓存
+        Clear configuration cache
 
         Args:
-            name: 要清除的配置名称（None表示清除所有）
+            name: Configuration name to clear (None means clear all)
         """
         if name is None:
             self.config_cache.clear()
-            logger.debug("清除所有配置缓存")
+            logger.debug("Cleared all configuration caches")
         elif name in self.config_cache:
             del self.config_cache[name]
-            logger.debug(f"清除配置缓存: {name}")
+            logger.debug(f"Cleared configuration cache: {name}")

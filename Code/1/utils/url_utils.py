@@ -7,6 +7,15 @@ import random
 
 
 def is_valid_url(url: str) -> bool:
+    """
+    Check if URL is valid
+    
+    Args:
+        url: URL to check
+        
+    Returns:
+        Whether URL is valid
+    """
     if not url:
         return False
     try:
@@ -18,17 +27,17 @@ def is_valid_url(url: str) -> bool:
 
 def fix_url(url: str, base: str) -> str:
     """
-    修复不完整的URL
-
+    Fix incomplete URLs
+    
     Args:
-        url: 可能不完整的URL
-        head: 基准URL，用于拼接相对路径
-
+        url: Potentially incomplete URL
+        base: Base URL for joining relative paths
+        
     Returns:
-        修复后的URL
-
+        Fixed URL
+        
     Raises:
-        ValueError: 如果head不是有效的URL
+        ValueError: If base is not a valid URL
     """
     if not url:
         return ""
@@ -40,57 +49,57 @@ def fix_url(url: str, base: str) -> str:
         try:
             url = urljoin(base, url)
         except Exception:
-            return url  # 如果拼接失败，返回原URL
+            return url  # If joining fails, return original URL
 
     return url
 
 
 def normalize_url(url: str, base: str, strip_params: bool = False) -> str:
     """
-    规范化 URL，支持基于 base 的相对路径解析
-
+    Normalize URL, supporting relative path resolution based on base URL
+    
     Args:
-        url: 要规范化的 URL
-        base: 基准 URL, 用于解析相对路径
-        strip_params: 是否去除 URL 参数
-
+        url: URL to normalize
+        base: Base URL for resolving relative paths
+        strip_params: Whether to remove URL parameters
+        
     Returns:
-        规范化后的 URL
+        Normalized URL
     """
     if not url or isinstance(url, Exception):
         return ""
 
-    # 如果 URL 无效，尝试用 base 修复
+    # If URL is invalid, try to fix with base
     if not is_valid_url(url):
         url = fix_url(url, base)
 
     try:
         parsed = urlparse(url)
 
-        # 确保有协议和域名
-        scheme = parsed.scheme.lower() or "https"  # 默认使用 https
+        # Ensure protocol and domain
+        scheme = parsed.scheme.lower() or "https"  # Default to https
         netloc = parsed.netloc.lower()
 
-        # 去掉 www 前缀
+        # Remove www prefix
         if netloc.startswith("www."):
             netloc = netloc[4:]
 
-        # 规范化路径，去除尾部斜杠和冗余段
+        # Normalize path, remove trailing slashes and redundant segments
         path = parsed.path.rstrip("/")
         if not path:
             path = "/"
 
-        # 是否保留参数
+        # Whether to keep parameters
         query = "" if strip_params else parsed.query
 
-        # 重建 URL
+        # Rebuild URL
         normalized = f"{scheme}://{netloc}{path}"
         if query:
             normalized += f"?{query}"
 
         return normalized
     except Exception:
-        return url  # 解析失败返回原 URL
+        return url  # Return original URL if parsing fails
 
 
 async def fetch_real_url(
@@ -108,25 +117,46 @@ async def fetch_real_url(
     logger: Optional[logging.Logger] = None,
     cache: Optional[Dict[str, str]] = None,
 ) -> str:
+    """
+    Fetch real URL by following redirects
+    
+    Args:
+        session: HTTP client session
+        org_link: Original link to resolve
+        headers: Request headers
+        proxy_list: List of proxy servers
+        base: Base URL for resolving relative paths
+        max_semaphore: Concurrency limiter
+        timeout: Request timeout in seconds
+        retries: Number of retry attempts
+        min_sleep: Minimum delay between requests
+        max_sleep: Maximum delay between requests
+        max_redirects: Maximum redirects to follow
+        logger: Logger instance
+        cache: URL cache dictionary
+        
+    Returns:
+        Resolved real URL
+    """
     if not org_link:
         if logger:
-            logger.debug("空链接，返回空")
+            logger.debug("【URL_UTILS】Empty link, returning empty string")
         return ""
 
     if cache and org_link in cache:
         if logger:
-            logger.debug(f"从缓存返回URL: {org_link} -> {cache[org_link]}")
+            logger.debug(f"URL returned from cache: {org_link} -> {cache[org_link]}")
         return cache[org_link]
 
     if not is_valid_url(org_link):
         try:
             fixed_link = fix_url(org_link, base)
             if logger:
-                logger.debug(f"修正链接格式: {org_link} -> {fixed_link}")
+                logger.debug(f"Fixed link format: {org_link} -> {fixed_link}")
             org_link = fixed_link
         except ValueError as e:
             if logger:
-                logger.error(f"基准URL无效: {str(e)}")
+                logger.error(f"Invalid base URL: {str(e)}")
             return org_link
 
     request_headers = headers.copy()
@@ -143,8 +173,8 @@ async def fetch_real_url(
                 try:
                     if logger:
                         logger.debug(
-                            f"尝试获取URL: {current_url}"
-                            + (f" 通过代理: {proxy}" if proxy else "")
+                            f"Attempting to get URL: {current_url}"
+                            + (f" via proxy: {proxy}" if proxy else "")
                         )
 
                     if "Referer" in request_headers:
@@ -163,7 +193,7 @@ async def fetch_real_url(
                             location = response.headers.get("Location")
                             if not location:
                                 if logger:
-                                    logger.warning(f"未找到重定向地址: {org_link}")
+                                    logger.warning(f"No redirect location found: {org_link}")
                                 if cache is not None:
                                     cache[org_link] = org_link
                                 return org_link
@@ -173,7 +203,7 @@ async def fetch_real_url(
 
                             if logger:
                                 logger.debug(
-                                    f"检测到重定向 ({redirect_count}/{max_redirects}): {current_url}"
+                                    f"【URL_UTILS】Redirect detected ({redirect_count}/{max_redirects}): {current_url}"
                                 )
 
                             await asyncio.sleep(random.uniform(min_sleep, max_sleep))
@@ -181,7 +211,7 @@ async def fetch_real_url(
                         else:
                             result = str(response.url)
                             if logger:
-                                logger.debug(f"获取到真实URL: {org_link} -> {result}")
+                                logger.debug(f"Real URL obtained: {org_link} -> {result}")
                             if cache is not None:
                                 cache[org_link] = result
                             return result
@@ -190,26 +220,26 @@ async def fetch_real_url(
                     if attempt == retries:
                         if logger:
                             logger.error(
-                                f"链接解析失败 (尝试 {attempt+1}/{retries+1}): {current_url}, "
-                                f"代理: {proxy}, 错误: {str(e)}"
+                                f"Link resolution failed (attempt {attempt+1}/{retries+1}): {current_url}, "
+                                f"proxy: {proxy}, error: {str(e)}"
                             )
                     if attempt < retries:
                         sleep_time = random.uniform(min_sleep, max_sleep)
                         if logger:
                             logger.debug(
-                                f"重试 {attempt+1}/{retries}，等待 {sleep_time:.2f}秒"
+                                f"Retry {attempt+1}/{retries}, waiting {sleep_time:.2f}s"
                             )
                         await asyncio.sleep(sleep_time)
                     continue
             else:
                 if logger:
-                    logger.warning(f"重试次数耗尽，仍未解析: {current_url}")
+                    logger.warning(f"Retries exhausted, resolution failed: {current_url}")
                 if cache is not None:
                     cache[org_link] = current_url
                 return current_url
 
         if logger:
-            logger.warning(f"超过最大重定向次数: {org_link}")
+            logger.warning(f"Maximum redirects exceeded: {org_link}")
         if cache is not None:
             cache[org_link] = current_url
         return current_url
@@ -231,6 +261,28 @@ async def batch_fetch_real_urls(
     cache: Optional[Dict[str, str]] = None,
     batch_size: int = 10,
 ) -> List[str]:
+    """
+    Fetch real URLs for a batch of links
+    
+    Args:
+        session: HTTP client session
+        urls: List of URLs to resolve
+        headers: Request headers
+        proxy_list: List of proxy servers
+        base: Base URL for resolving relative paths
+        max_semaphore: Concurrency limiter
+        timeout: Request timeout in seconds
+        retries: Number of retry attempts
+        min_sleep: Minimum delay between requests
+        max_sleep: Maximum delay between requests
+        max_redirects: Maximum redirects to follow
+        logger: Logger instance
+        cache: URL cache dictionary
+        batch_size: Number of URLs to process in each batch
+        
+    Returns:
+        List of resolved URLs
+    """
     request_headers = headers.copy()
     if "Cookie" in request_headers:
         del request_headers["Cookie"]
@@ -240,7 +292,7 @@ async def batch_fetch_real_urls(
         batch = urls[i : i + batch_size]
         if logger:
             logger.debug(
-                f"处理URL批次 {i//batch_size + 1}/{(len(urls)-1)//batch_size + 1}, 包含 {len(batch)} 个URL"
+                f"Processing URL batch {i//batch_size + 1}/{(len(urls)-1)//batch_size + 1}, containing {len(batch)} URLs"
             )
 
         tasks = [

@@ -14,24 +14,24 @@ def setup_logger(
     propagate: bool = False,
 ) -> logging.Logger:
     """
-    配置并返回日志记录器
+    Configure and return a logger
 
     Args:
-        name: 日志记录器名称
-        log_level: 日志级别
-        log_file: 日志文件路径
-        log_to_console: 是否输出到控制台
-        log_format: 日志格式
-        date_format: 日期格式
-        propagate: 是否传播日志到父记录器
+        name: Logger name
+        log_level: Log level
+        log_file: Log file path
+        log_to_console: Whether to output to console
+        log_format: Log format
+        date_format: Date format
+        propagate: Whether to propagate logs to parent logger
 
     Returns:
-        配置好的日志记录器
+        Configured logger
     """
-    # 获取logger
+    # Get logger
     logger = logging.getLogger(name)
 
-    # 如果已经有handlers，则返回现有logger（避免重复添加handlers）
+    # If handlers already exist, return existing logger (avoid duplicate handlers)
     if logger.handlers:
         return logger
 
@@ -40,20 +40,20 @@ def setup_logger(
 
     formatter = logging.Formatter(log_format, date_format)
 
-    # 添加控制台处理器
+    # Add console handler
     if log_to_console:
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(log_level)
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
 
-    # 添加文件处理器
+    # Add file handler
     if log_file:
         if isinstance(log_file, str):
             log_file = Path(log_file)
 
         try:
-            # 确保日志目录存在
+            # Ensure log directory exists
             log_file.parent.mkdir(parents=True, exist_ok=True)
 
             file_handler = logging.FileHandler(log_file, encoding="utf-8")
@@ -61,27 +61,27 @@ def setup_logger(
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
         except Exception as e:
-            # 如果无法设置文件处理器，则记录错误到控制台
+            # If unable to set up file handler, log error to console
             if log_to_console:
-                logger.error(f"无法设置日志文件 {log_file}: {e}")
+                logger.error(f"Unable to set up log file {log_file}: {e}")
 
     return logger
 
 
 def get_log_levels() -> List[str]:
-    """返回所有可用的日志级别名称"""
+    """Return all available log level names"""
     return ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
 def get_log_level_from_string(level_name: str) -> int:
     """
-    将日志级别名称转换为对应的整数值, 默认为INFO级别
+    Convert log level name to corresponding integer value, default to INFO level
 
     Args:
-        level_name: 日志级别名称
+        level_name: Log level name
 
     Returns:
-        日志级别整数值
+        Log level integer value
     """
     level_map = {
         "debug": logging.DEBUG,

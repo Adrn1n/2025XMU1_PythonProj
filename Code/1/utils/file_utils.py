@@ -14,22 +14,22 @@ async def write_to_file(
     logger: Optional[logging.Logger] = None,
 ) -> bool:
     """
-    异步将数据写入文件，并支持备份
+    Asynchronously write data to a file, with backup support
 
     Args:
-        data: 要写入的数据
-        file_path: 文件路径
-        backup: 是否创建备份
-        log_level: 日志级别
-        logger: 日志记录器
+        data: Data to write
+        file_path: File path
+        backup: Whether to create backup
+        log_level: Log level
+        logger: Logger object
 
     Returns:
-        bool: 写入是否成功
+        bool: Whether writing was successful
     """
     if isinstance(file_path, str):
         file_path = Path(file_path)
 
-    # 创建或获取日志记录器
+    # Create or get logger
     if logger is None:
         logger = logging.getLogger("file_utils: write_to_file")
         logger.setLevel(log_level)
@@ -43,20 +43,20 @@ async def write_to_file(
             logger.addHandler(handler)
 
     if not isinstance(file_path, Path):
-        logger.error("文件路径无效")
+        logger.error("Invalid file path")
         return False
 
     try:
-        # 确保目录存在
+        # Ensure directory exists
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # 如果文件已存在且需要备份，则创建备份
+        # Create backup if file exists and backup is needed
         if backup and file_path.exists():
             backup_path = file_path.with_suffix(f".{int(time.time())}.bak")
             file_path.rename(backup_path)
-            logger.debug(f"已创建备份: {backup_path}")
+            logger.debug(f"【FILE_UTILS】Backup created: {backup_path}")
 
-        # 写入数据
+        # Write data
         async with aiofiles.open(file_path, "w", encoding="utf-8") as file:
             if isinstance(data, (dict, list)):
                 json_str = json.dumps(data, ensure_ascii=False, indent=2)
@@ -64,20 +64,20 @@ async def write_to_file(
             else:
                 await file.write(str(data))
 
-        logger.info(f"数据已保存至: {file_path}")
+        logger.info(f"Data saved to: {file_path}")
         return True
 
     except json.JSONEncodeError as e:
-        logger.error(f"数据序列化失败: {str(e)}")
+        logger.error(f"Data serialization failed: {str(e)}")
         return False
     except PermissionError:
-        logger.error(f"无权限写入文件: {file_path}")
+        logger.error(f"No permission to write file: {file_path}")
         return False
     except OSError as e:
-        logger.error(f"文件操作失败: {str(e)}")
+        logger.error(f"File operation failed: {str(e)}")
         return False
     except Exception as e:
-        logger.error(f"未知错误: {str(e)}")
+        logger.error(f"Unknown error: {str(e)}")
         return False
 
 
@@ -88,21 +88,21 @@ async def read_from_file(
     logger: Optional[logging.Logger] = None,
 ) -> Any:
     """
-    异步从文件读取数据
+    Asynchronously read data from file
 
     Args:
-        file_path: 文件路径
-        default: 文件不存在或读取失败时的默认值
-        log_level: 日志级别
-        logger: 日志记录器
+        file_path: File path
+        default: Default value if file doesn't exist or reading fails
+        log_level: Log level
+        logger: Logger object
 
     Returns:
-        读取的数据，如果读取失败则返回默认值
+        Read data or default value if reading fails
     """
     if isinstance(file_path, str):
         file_path = Path(file_path)
 
-    # 创建或获取日志记录器
+    # Create or get logger
     if logger is None:
         logger = logging.getLogger("file_utils: read_from_file")
         logger.setLevel(log_level)
@@ -116,35 +116,35 @@ async def read_from_file(
             logger.addHandler(handler)
 
     if not isinstance(file_path, Path):
-        logger.error("文件路径无效")
+        logger.error("Invalid file path")
         return default
 
     try:
         if not file_path.exists():
-            logger.warning(f"文件不存在: {file_path}")
+            logger.warning(f"File does not exist: {file_path}")
             return default
 
         async with aiofiles.open(file_path, "r", encoding="utf-8") as file:
             content = await file.read()
 
-        # 尝试解析为JSON
+        # Try to parse as JSON
         try:
             data = json.loads(content)
-            logger.debug(f"已从 {file_path} 读取JSON数据")
+            logger.debug(f"JSON data read from {file_path}")
             return data
         except json.JSONDecodeError:
-            # 不是JSON，返回原始内容
-            logger.debug(f"已从 {file_path} 读取文本数据")
+            # Not JSON, return original content
+            logger.debug(f"Text data read from {file_path}")
             return content
 
     except PermissionError:
-        logger.error(f"无权限读取文件: {file_path}")
+        logger.error(f"No permission to read file: {file_path}")
         return default
     except OSError as e:
-        logger.error(f"文件操作失败: {str(e)}")
+        logger.error(f"File operation failed: {str(e)}")
         return default
     except Exception as e:
-        logger.error(f"未知错误: {str(e)}")
+        logger.error(f"【FILE_UTILS】Unknown error: {str(e)}")
         return default
 
 
@@ -155,16 +155,16 @@ async def save_search_results(
     logger: Optional[logging.Logger] = None,
 ) -> bool:
     """
-    保存搜索结果到文件
+    Save search results to file
 
     Args:
-        results: 搜索结果列表
-        file_path: 文件路径
-        save_timestamp: 是否保存时间戳
-        logger: 日志记录器
+        results: List of search results
+        file_path: File path
+        save_timestamp: Whether to save timestamp
+        logger: Logger object
 
     Returns:
-        保存是否成功
+        Whether saving was successful
     """
     data_to_save = {
         "results": results,
