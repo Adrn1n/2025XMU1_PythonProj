@@ -1,24 +1,24 @@
-import asyncio
 import argparse
-import aiohttp
-import logging
-import sys
+from typing import Any, Dict, List, Optional
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+import logging
+import aiohttp
+import asyncio
+import sys
 
 from scrapers.baidu_scraper import BaiduScraper
+from utils.logging_utils import get_log_level_from_string, setup_logger
 from utils.file_utils import save_search_results
-from utils.logging_utils import setup_logger, get_log_level_from_string
-from utils.config_manager import ConfigManager
+
+# 导入优化后的配置
 from config import (
+    CONFIG,
     HEADERS,
     PROXY_LIST,
-    SEARCH_CACHE_FILE,
     LOG_FILE,
     DEFAULT_CONFIG,
     CACHE_DIR,
-    LOG_DIR,
 )
 
 
@@ -81,28 +81,24 @@ def parse_args() -> argparse.Namespace:
 
 def get_scraper_config(
     args: argparse.Namespace,
-    config_manager: ConfigManager,
     log_to_console: bool,
     log_file_path: Optional[Path],
 ) -> Dict[str, Any]:
     """根据命令行参数生成爬虫配置"""
-    # 尝试从配置文件加载配置，如果不存在则使用默认配置
-    scraper_config = config_manager.load_config("scraper")
-    if not scraper_config:
-        scraper_config = {}
+    # 从统一配置对象获取爬虫配置，如果不存在则使用默认配置
+    scraper_config = CONFIG.get("scraper", DEFAULT_CONFIG)
 
-    # 使用默认配置填充缺失的值
-    config = DEFAULT_CONFIG.copy()
-
-    # 优先使用命令行参数
-    if args.concurrent:
-        config["max_semaphore"] = args.concurrent
-    if args.batch_size:
-        config["batch_size"] = args.batch_size
-    if args.timeout:
-        config["timeout"] = args.timeout
-    if args.retries:
-        config["retries"] = args.retries
+    # 构建配置字典，优先使用命令行参数
+    config = {
+        "max_semaphore": args.concurrent or scraper_config.get("max_semaphore", 25),
+        "batch_size": args.batch_size or scraper_config.get("batch_size", 25),
+        "timeout": args.timeout or scraper_config.get("timeout", 3),
+        "retries": args.retries or scraper_config.get("retries", 0),
+        "min_sleep": scraper_config.get("min_sleep", 0.1),
+        "max_sleep": scraper_config.get("max_sleep", 0.3),
+        "max_redirects": scraper_config.get("max_redirects", 5),
+        "cache_size": scraper_config.get("cache_size", 1000),
+    }
 
     # 获取日志级别
     log_level = get_log_level_from_string(args.log_level)
@@ -127,23 +123,24 @@ def get_scraper_config(
     }
 
 
-def get_output_file(
-    args: argparse.Namespace, config_manager: ConfigManager, query: str
-) -> Path:
+def get_output_file(args: argparse.Namespace, query: str) -> Path:
     """确定输出文件路径"""
+    # 如果提供了输出参数，直接使用
     if args.output:
         output_path = Path(args.output)
     else:
-        # 获取缓存目录，如果配置中没有则使用命令行参数或默认值
+        # 获取配置中的缓存目录，优先使用命令行参数
         cache_dir = args.cache_dir
         if not cache_dir:
-            paths_config = config_manager.load_config("paths")
-            cache_dir = paths_config.get("cache_dir", str(CACHE_DIR))
+            # 使用配置系统中的路径
+            cache_dir = CONFIG["paths"].get("cache_dir", str(CACHE_DIR))
 
+        # 创建安全的查询字符串和时间戳
         safe_query = "".join(c if c.isalnum() else "_" for c in query)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         output_path = Path(cache_dir) / f"baidu_search_{safe_query}_{timestamp}.json"
 
+    # 确保输出目录存在
     output_path.parent.mkdir(parents=True, exist_ok=True)
     return output_path
 
@@ -177,8 +174,7 @@ async def run_search(
 
 async def main():
     """主函数"""
-    # 初始化配置管理器
-    config_manager = ConfigManager()
+    # 初始化配置管理器已在config.py中完成，这里直接使用
 
     try:
         args = parse_args()
@@ -210,14 +206,14 @@ async def main():
         # 设置主日志记录器，确保在所有操作之前完成配置
         log_file_path = None
         if log_to_file:
-            # 尝试从配置获取日志文件路径，如果没有则使用命令行参数或默认值
             if args.log_file:
                 log_file_path = Path(args.log_file)
             else:
-                paths_config = config_manager.load_config("paths")
-                log_file_path = Path(paths_config.get("log_file", str(LOG_FILE)))
+                # 使用配置系统中的日志文件路径
+                log_file_path = Path(CONFIG["files"].get("log_file", str(LOG_FILE)))
 
-            log_file_path.parent.mkdir(parents=True, exist_ok=True)  # 确保日志目录存在
+            # 确保日志目录存在
+            log_file_path.parent.mkdir(parents=True, exist_ok=True)
 
         logger = setup_logger(
             "baidu_scraper_main",
@@ -226,29 +222,27 @@ async def main():
             log_to_console,
         )
 
-        logger.info("百度搜索结果抓取工具启动")
-
         # 确定缓存文件路径
         if args.cache_file:
             cache_file = Path(args.cache_file)
         else:
-            paths_config = config_manager.load_config("paths")
+            # 使用配置系统中的缓存目录
             cache_dir = Path(
-                args.cache_dir or paths_config.get("cache_dir", str(CACHE_DIR))
+                args.cache_dir or CONFIG["paths"].get("cache_dir", str(CACHE_DIR))
             )
             cache_dir.mkdir(parents=True, exist_ok=True)
             cache_file = cache_dir / "url_cache.json"
 
+        logger.info("百度搜索结果抓取工具启动")
+
         # 确定输出文件路径
         output_file = None
         if save_results:
-            output_file = get_output_file(args, config_manager, query)
+            output_file = get_output_file(args, query)
             logger.info(f"搜索结果将保存到: {output_file}")
 
         # 创建和配置爬虫
-        scraper_config = get_scraper_config(
-            args, config_manager, log_to_console, log_file_path
-        )
+        scraper_config = get_scraper_config(args, log_to_console, log_file_path)
         scraper = BaiduScraper(**scraper_config)
 
         # 清除缓存（如果需要）

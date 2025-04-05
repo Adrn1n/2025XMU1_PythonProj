@@ -1,53 +1,48 @@
+from typing import List, Dict, TypeVar
+import logging
 from pathlib import Path
 import re
 import random
-from typing import List, Dict, Callable, Optional, TypeVar
-import logging
+
+from utils.config_manager import ConfigManager, DEFAULT_CONFIG_TEMPLATES
 
 T = TypeVar("T")
 
-# 配置常量
-HEADERS_FILE = Path("config/headers.txt")
-PROXY_FILE = Path("config/proxy.txt")
-SEARCH_CACHE_FILE = Path("cache/baidu_search_res.json")
-LOG_FILE = Path("logs/scraper.log")
-
-# 添加缺失的配置变量
-CACHE_DIR = Path("cache")
-LOG_DIR = Path("logs")
-
-# 默认爬虫配置
-DEFAULT_CONFIG = {
-    "max_semaphore": 25,
-    "batch_size": 25,  # Added batch_size with default 25
-    "timeout": 3,
-    "retries": 2,
-    "min_sleep": 0.1,
-    "max_sleep": 0.3,
-    "max_redirects": 5,
-    "cache_size": 1000,
-}
-
-# 初始化日志器，但不立即配置，等待 main.py 中用户选择
+# 创建日志记录器
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)  # 默认级别，稍后可调整
+logger.setLevel(logging.INFO)
 
+# 初始化配置管理器
+config_manager = ConfigManager()
+config_manager.ensure_default_configs()  # 确保默认配置存在
 
-def load_file_lines(
-    file_path: Path, process_line: Callable[[str], str] = str.strip
-) -> List[str]:
-    """通用文件加载函数"""
-    try:
-        if not file_path.exists():
-            raise FileNotFoundError(f"File not found: {file_path}")
-        with file_path.open("r", encoding="utf-8") as f:
-            lines = [process_line(line) for line in f if line.strip()]
-        if not lines:
-            raise ValueError(f"File is empty: {file_path}")
-        return lines
-    except (FileNotFoundError, ValueError) as e:
-        logger.error(f"加载文件 {file_path} 失败: {e}")
-        return []
+# 从配置文件加载路径配置
+paths_config = config_manager.load_config("paths", DEFAULT_CONFIG_TEMPLATES["paths"])
+files_config = config_manager.load_config("files", DEFAULT_CONFIG_TEMPLATES["files"])
+
+# 创建实际路径对象
+paths = {key: Path(value) for key, value in paths_config.items()}
+files = {}
+for key, value in files_config.items():
+    base_path = Path(value)
+    # 如果是相对路径，则基于相应目录
+    if not base_path.is_absolute() and key.endswith("_file"):
+        dir_key = f"{key.rsplit('_', 1)[0]}_dir"
+        if dir_key in paths:
+            files[key] = paths[dir_key] / base_path.name
+        else:
+            files[key] = base_path
+    else:
+        files[key] = base_path
+
+# 确保所有目录都存在
+for key, path in paths.items():
+    if key.endswith("_dir") and not path.exists():
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            logger.debug(f"创建目录: {path}")
+        except Exception as e:
+            logger.error(f"创建目录失败: {path}, 错误: {e}")
 
 
 def parse_cookies(line: str) -> Dict[str, str]:
@@ -61,23 +56,27 @@ def parse_cookies(line: str) -> Dict[str, str]:
 
 
 def load_http_headers(file_path: Path) -> List[Dict[str, str]]:
-    """加载完整的HTTP请求头信息"""
+    """加载HTTP请求头信息"""
     try:
         if not file_path.exists():
-            raise FileNotFoundError(f"文件未找到: {file_path}")
+            logger.debug(f"HTTP头文件不存在: {file_path}")
+            return []
+
         with file_path.open("r", encoding="utf-8") as f:
             content = f.read()
+
+        # 按空行分隔头信息块
         header_blocks = [
             block.strip() for block in content.split("\n\n") if block.strip()
         ]
         if not header_blocks:
-            raise ValueError(f"文件为空或格式不正确: {file_path}")
+            return []
 
         headers_list = []
         for block in header_blocks:
             headers_dict = {}
             lines = block.splitlines()
-            for line in lines[1:]:
+            for line in lines[1:]:  # 跳过第一行
                 if ": " in line:
                     key, value = line.split(": ", 1)
                     if key.lower() == "cookie":
@@ -86,29 +85,63 @@ def load_http_headers(file_path: Path) -> List[Dict[str, str]]:
                     headers_dict[key] = value
             if headers_dict:
                 headers_list.append(headers_dict)
-        if not headers_list:
-            raise ValueError(f"未能解析任何有效的请求头: {file_path}")
         return headers_list
-    except (FileNotFoundError, ValueError) as e:
-        logger.error(f"加载HTTP请求头文件 {file_path} 失败: {e}")
+    except Exception as e:
+        logger.error(f"加载HTTP头文件失败: {file_path}, 错误: {e}")
         return []
 
 
-def random_choice(items: List[T], default: Optional[T] = None) -> T:
-    """从列表中随机选择一项，若列表为空返回默认值"""
-    return random.choice(items) if items else default
+def load_file_lines(file_path: Path) -> List[str]:
+    """加载文件行"""
+    try:
+        if not file_path.exists():
+            return []
+        with file_path.open("r", encoding="utf-8") as f:
+            return [line.strip() for line in f if line.strip()]
+    except Exception as e:
+        logger.error(f"加载文件失败: {file_path}, 错误: {e}")
+        return []
 
 
-HEADERS_LIST = load_http_headers(HEADERS_FILE)
-if not HEADERS_LIST:
-    HEADERS = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
-    COOKIES = {}
+# 加载HTTP头和代理
+headers_list = load_http_headers(files.get("headers_file", Path("config/headers.txt")))
+if headers_list:
+    headers_item = random.choice(headers_list)
+    cookies = headers_item.pop("cookies", {}) if "cookies" in headers_item else {}
+    headers = headers_item
 else:
-    HEADERS_ITEM = random_choice(HEADERS_LIST)
-    COOKIES = HEADERS_ITEM.pop("cookies", {}) if "cookies" in HEADERS_ITEM else {}
-    HEADERS = HEADERS_ITEM
+    headers = {}
+    cookies = {}
 
-PROXY_LIST = load_file_lines(PROXY_FILE)
-PROXY = random_choice(PROXY_LIST, None)
+proxy_list = load_file_lines(files.get("proxy_file", Path("config/proxy.txt")))
+proxy = random.choice(proxy_list) if proxy_list else None
+
+# 加载爬虫配置
+scraper_config = config_manager.load_config(
+    "scraper", DEFAULT_CONFIG_TEMPLATES["scraper"]
+)
+
+# 构建最终统一配置
+CONFIG = {
+    "paths": paths,
+    "files": files,
+    "headers": headers,
+    "cookies": cookies,
+    "proxy_list": proxy_list,
+    "proxy": proxy,
+    "scraper": scraper_config,
+}
+
+# 导出常用配置项，保持向后兼容性
+HEADERS_FILE = files.get("headers_file")
+PROXY_FILE = files.get("proxy_file")
+SEARCH_CACHE_FILE = files.get("search_cache_file")
+LOG_FILE = files.get("log_file")
+
+CACHE_DIR = paths.get("cache_dir")
+LOG_DIR = paths.get("log_dir")
+
+HEADERS = headers
+PROXY_LIST = proxy_list
+PROXY = proxy
+DEFAULT_CONFIG = scraper_config
