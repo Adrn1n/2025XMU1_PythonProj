@@ -9,10 +9,10 @@ import random
 def is_valid_url(url: str) -> bool:
     """
     Check if URL is valid
-    
+
     Args:
         url: URL to check
-        
+
     Returns:
         Whether URL is valid
     """
@@ -21,21 +21,21 @@ def is_valid_url(url: str) -> bool:
     try:
         result = urlparse(url)
         return all([result.scheme, result.netloc])
-    except Exception:
+    except (ValueError, TypeError):
         return False
 
 
 def fix_url(url: str, base: str) -> str:
     """
     Fix incomplete URLs
-    
+
     Args:
         url: Potentially incomplete URL
         base: Base URL for joining relative paths
-        
+
     Returns:
         Fixed URL
-        
+
     Raises:
         ValueError: If base is not a valid URL
     """
@@ -48,7 +48,7 @@ def fix_url(url: str, base: str) -> str:
     if not url.startswith(("http://", "https://")):
         try:
             url = urljoin(base, url)
-        except Exception:
+        except (ValueError, TypeError):
             return url  # If joining fails, return original URL
 
     return url
@@ -57,12 +57,12 @@ def fix_url(url: str, base: str) -> str:
 def normalize_url(url: str, base: str, strip_params: bool = False) -> str:
     """
     Normalize URL, supporting relative path resolution based on base URL
-    
+
     Args:
         url: URL to normalize
         base: Base URL for resolving relative paths
         strip_params: Whether to remove URL parameters
-        
+
     Returns:
         Normalized URL
     """
@@ -98,7 +98,7 @@ def normalize_url(url: str, base: str, strip_params: bool = False) -> str:
             normalized += f"?{query}"
 
         return normalized
-    except Exception:
+    except (ValueError, TypeError):
         return url  # Return original URL if parsing fails
 
 
@@ -119,7 +119,7 @@ async def fetch_real_url(
 ) -> str:
     """
     Fetch real URL by following redirects
-    
+
     Args:
         session: HTTP client session
         org_link: Original link to resolve
@@ -134,13 +134,13 @@ async def fetch_real_url(
         max_redirects: Maximum redirects to follow
         logger: Logger instance
         cache: URL cache dictionary
-        
+
     Returns:
         Resolved real URL
     """
     if not org_link:
         if logger:
-            logger.debug("【URL_UTILS】Empty link, returning empty string")
+            logger.debug("[URL_UTILS]: Empty link, returning empty string")
         return ""
 
     if cache and org_link in cache:
@@ -193,7 +193,9 @@ async def fetch_real_url(
                             location = response.headers.get("Location")
                             if not location:
                                 if logger:
-                                    logger.warning(f"No redirect location found: {org_link}")
+                                    logger.warning(
+                                        f"No redirect location found: {org_link}"
+                                    )
                                 if cache is not None:
                                     cache[org_link] = org_link
                                 return org_link
@@ -203,7 +205,7 @@ async def fetch_real_url(
 
                             if logger:
                                 logger.debug(
-                                    f"【URL_UTILS】Redirect detected ({redirect_count}/{max_redirects}): {current_url}"
+                                    f"[URL_UTILS]: Redirect detected ({redirect_count}/{max_redirects}): {current_url}"
                                 )
 
                             await asyncio.sleep(random.uniform(min_sleep, max_sleep))
@@ -211,7 +213,9 @@ async def fetch_real_url(
                         else:
                             result = str(response.url)
                             if logger:
-                                logger.debug(f"Real URL obtained: {org_link} -> {result}")
+                                logger.debug(
+                                    f"Real URL obtained: {org_link} -> {result}"
+                                )
                             if cache is not None:
                                 cache[org_link] = result
                             return result
@@ -233,7 +237,9 @@ async def fetch_real_url(
                     continue
             else:
                 if logger:
-                    logger.warning(f"Retries exhausted, resolution failed: {current_url}")
+                    logger.warning(
+                        f"Retries exhausted, resolution failed: {current_url}"
+                    )
                 if cache is not None:
                     cache[org_link] = current_url
                 return current_url
@@ -263,7 +269,7 @@ async def batch_fetch_real_urls(
 ) -> List[str]:
     """
     Fetch real URLs for a batch of links
-    
+
     Args:
         session: HTTP client session
         urls: List of URLs to resolve
@@ -279,7 +285,7 @@ async def batch_fetch_real_urls(
         logger: Logger instance
         cache: URL cache dictionary
         batch_size: Number of URLs to process in each batch
-        
+
     Returns:
         List of resolved URLs
     """

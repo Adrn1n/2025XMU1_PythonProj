@@ -40,9 +40,9 @@ for key, path in paths.items():
     if key.endswith("_dir") and not path.exists():
         try:
             path.mkdir(parents=True, exist_ok=True)
-            logger.debug(f"【CONFIG】Created directory: {path}")
+            logger.debug(f"[CONFIG]: Created directory: {path}")
         except Exception as e:
-            logger.error(f"【CONFIG】Failed to create directory: {path}, error: {e}")
+            logger.error(f"[CONFIG]: Failed to create directory: {path}, error: {e}")
 
 
 def parse_cookies(line: str) -> Dict[str, str]:
@@ -80,7 +80,7 @@ def load_http_headers(file_path: Path) -> List[Dict[str, str]]:
         if not header_blocks:
             return []
 
-        headers_list = []
+        headers_list_ = []
         for block in header_blocks:
             headers_dict = {}
             lines = block.splitlines()
@@ -92,10 +92,12 @@ def load_http_headers(file_path: Path) -> List[Dict[str, str]]:
                         headers_dict["cookies"] = cookies_dict
                     headers_dict[key] = value
             if headers_dict:
-                headers_list.append(headers_dict)
-        return headers_list
-    except Exception as e:
-        logger.error(f"Failed to load HTTP headers file: {file_path}, error: {e}")
+                headers_list_.append(headers_dict)
+        return headers_list_
+    except Exception as headers_load_error:
+        logger.error(
+            f"Failed to load HTTP headers file: {file_path}, error: {headers_load_error}"
+        )
         return []
 
 
@@ -114,8 +116,8 @@ def load_file_lines(file_path: Path) -> List[str]:
             return []
         with file_path.open("r", encoding="utf-8") as f:
             return [line.strip() for line in f if line.strip()]
-    except Exception as e:
-        logger.error(f"Failed to load file: {file_path}, error: {e}")
+    except Exception as file_load_error:
+        logger.error(f"Failed to load file: {file_path}, error: {file_load_error}")
         return []
 
 

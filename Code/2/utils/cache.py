@@ -65,7 +65,9 @@ class URLCache:
                     expired_keys.append(k)
             except Exception as e:
                 if self.logger:
-                    self.logger.warning(f"Error processing cache item: {e}, marking as expired: {k}")
+                    self.logger.warning(
+                        f"Error processing cache item: {e}, marking as expired: {k}"
+                    )
                 expired_keys.append(k)
 
         for key in expired_keys:
@@ -95,7 +97,9 @@ class URLCache:
             del self.cache[key]
 
         if self.logger:
-            self.logger.debug(f"Cache space insufficient, removed {len(to_remove)} oldest cache items")
+            self.logger.debug(
+                f"Cache space insufficient, removed {len(to_remove)} oldest cache items"
+            )
 
     def set(self, org_url: str, real_url: str) -> None:
         """Set cache"""
@@ -108,7 +112,7 @@ class URLCache:
 
         self.cache[org_url] = (real_url, time.time())
         if self.logger:
-            self.logger.debug(f"【URL_CACHE】Set cache for URL: {org_url}")
+            self.logger.debug(f"[URL_CACHE]: Set cache for URL: {org_url}")
 
     def get(self, url: str) -> Optional[str]:
         """Get cached URL"""
@@ -134,7 +138,7 @@ class URLCache:
         self.hits = 0
         self.misses = 0
         if self.logger:
-            self.logger.debug("【URL_CACHE】Cache cleared")
+            self.logger.debug("[URL_CACHE]: Cache cleared")
 
     def save_to_file(self, file_path: Path) -> bool:
         """Save cache to file"""

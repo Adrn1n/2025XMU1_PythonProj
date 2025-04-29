@@ -210,7 +210,7 @@ async def main():
             query = input("Please enter search keyword: ").strip()
             if not query:
                 print("Error: No search keyword provided, exiting")
-                return
+                return None
             if not args.no_save_results and not args.output:
                 save_choice = (
                     input("Save search results to file? (y/[n]): ").strip().lower()
@@ -271,7 +271,7 @@ async def main():
 
         # Clear cache (if needed)
         if args.clear_cache:
-            logger.info("【MAIN】Clearing URL cache")
+            logger.info("[MAIN]: Clearing URL cache")
             scraper.url_cache.clear()
 
         # Execute search
@@ -285,17 +285,17 @@ async def main():
                 logger=logger,
             )
         except aiohttp.ClientError as e:
-            logger.error(f"【MAIN】Network request error: {e}")
+            logger.error(f"[MAIN]: Network request error: {e}")
             # Fallback - attempt to use cached results
             if not args.no_cache and cache_file.exists():
                 logger.warning(
-                    "【MAIN】Attempting to load partial results from cache..."
+                    "[MAIN]: Attempting to load partial results from cache..."
                 )
                 # Add logic to recover from cache if needed
             results = []
         except Exception as e:
             logger.error(
-                f"【MAIN】Unknown error occurred during search: {str(e)}", exc_info=True
+                f"[MAIN]: Unknown error occurred during search: {str(e)}", exc_info=True
             )
             results = []
 
@@ -308,17 +308,17 @@ async def main():
                 logger=logger,
             )
             if success:
-                logger.info(f"【MAIN】Search results saved to: {output_file}")
+                logger.info(f"[MAIN]: Search results saved to: {output_file}")
             else:
-                logger.error("【MAIN】Failed to save search results")
+                logger.error("[MAIN]: Failed to save search results")
         elif results and not save_results:
-            logger.info("【MAIN】Search results not saved as per user settings")
+            logger.info("[MAIN]: Search results not saved as per user settings")
         else:
-            logger.warning("【MAIN】No search results available to save")
+            logger.warning("[MAIN]: No search results available to save")
 
         # Output statistics
         stats = scraper.get_stats()
-        logger.info("【MAIN】Scraper statistics:")
+        logger.info("[MAIN]: Scraper statistics:")
         logger.info(f" - Total requests: {stats['total']}")
         logger.info(f" - Successful requests: {stats['success']}")
         logger.info(f" - Failed requests: {stats['failed']}")
@@ -327,7 +327,7 @@ async def main():
 
         if "cache" in stats:
             cache_stats = stats["cache"]
-            logger.info("【MAIN】Cache statistics:")
+            logger.info("[MAIN]: Cache statistics:")
             logger.info(
                 f" - Cache size: {cache_stats['size']}/{cache_stats['max_size']}"
             )
@@ -340,7 +340,7 @@ async def main():
         print(f"Error occurred during program execution: {str(e)}")
         if logging.getLogger().hasHandlers():
             logging.getLogger().error(
-                f"【MAIN】Error during execution: {str(e)}", exc_info=True
+                f"[MAIN]: Error during execution: {str(e)}", exc_info=True
             )
         return 1  # Return error code
     return 0  # Normal exit

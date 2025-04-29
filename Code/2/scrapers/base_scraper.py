@@ -70,7 +70,7 @@ class BaseScraper:
         self.semaphore = asyncio.Semaphore(max_semaphore)
 
         # Initialize statistics
-        self.stats = {
+        self.stats: Dict[str, Any] = {
             "total": 0,
             "success": 0,
             "failed": 0,
@@ -154,7 +154,7 @@ class BaseScraper:
 
             if self.logger:
                 self.logger.debug(
-                    f"【BASE】Sending request: {url}"
+                    f"[BASE]: Sending request: {url}"
                     + (f" with params: {params}" if params else "")
                     + (f" via proxy: {proxy}" if proxy else "")
                 )
@@ -189,7 +189,7 @@ class BaseScraper:
                                 )
                                 if self.logger:
                                     self.logger.debug(
-                                        f"【BASE】Retrying ({attempt+1}/{retries}) waiting {sleep_time:.2f}s"
+                                        f"[BASE]: Retrying ({attempt+1}/{retries}) waiting {sleep_time:.2f}s"
                                     )
                                 await asyncio.sleep(sleep_time)
                                 continue

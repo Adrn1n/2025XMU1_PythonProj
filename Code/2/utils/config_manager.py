@@ -146,10 +146,14 @@ class ConfigManager:
             return config
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse configuration file: {config_path}, error: {e}")
+            logger.error(
+                f"Failed to parse configuration file: {config_path}, error: {e}"
+            )
             return {} if default is None else default
         except Exception as e:
-            logger.error(f"Failed to load configuration file: {config_path}, error: {e}")
+            logger.error(
+                f"Failed to load configuration file: {config_path}, error: {e}"
+            )
             return {} if default is None else default
 
     def get(self, name: str, key: str, default: Any = None) -> Any:
@@ -249,7 +253,9 @@ class ConfigManager:
                 merged_config = self.deep_merge(existing_config, config)
                 config = merged_config
             except Exception as e:
-                logger.warning(f"Configuration merge failed: {e}, will directly overwrite")
+                logger.warning(
+                    f"Configuration merge failed: {e}, will directly overwrite"
+                )
 
         # Save configuration
         try:
@@ -262,7 +268,9 @@ class ConfigManager:
             return True
 
         except Exception as e:
-            logger.error(f"Failed to save configuration file: {config_path}, error: {e}")
+            logger.error(
+                f"Failed to save configuration file: {config_path}, error: {e}"
+            )
             return False
 
     def set(self, name: str, key: str, value: Any, create_parents: bool = True) -> bool:
@@ -318,21 +326,29 @@ class ConfigManager:
             if not path.exists():
                 try:
                     path.mkdir(parents=True, exist_ok=True)
-                    logger.debug(f"【CONFIG_MANAGER】Created directory: {path}")
+                    logger.debug(f"[CONFIG_MANAGER]: Created directory: {path}")
                 except Exception as e:
-                    logger.error(f"【CONFIG_MANAGER】Failed to create directory: {path}, error: {e}")
+                    logger.error(
+                        f"[CONFIG_MANAGER]: Failed to create directory: {path}, error: {e}"
+                    )
                     success = False
 
         # Write configuration files
         for name, config in DEFAULT_CONFIG_TEMPLATES.items():
             if not self.config_exists(name):
                 if not self.save_config(name, config):
-                    logger.error(f"【CONFIG_MANAGER】Failed to create default configuration: {name}")
+                    logger.error(
+                        f"[CONFIG_MANAGER]: Failed to create default configuration: {name}"
+                    )
                     success = False
                 else:
-                    logger.debug(f"【CONFIG_MANAGER】Created default configuration: {name}")
+                    logger.debug(
+                        f"[CONFIG_MANAGER]: Created default configuration: {name}"
+                    )
             else:
-                logger.debug(f"【CONFIG_MANAGER】Configuration already exists, skipping creation: {name}")
+                logger.debug(
+                    f"[CONFIG_MANAGER]: Configuration already exists, skipping creation: {name}"
+                )
 
         # Create default headers.txt
         headers_path = Path(paths_config["config_dir"]) / "headers.txt"
@@ -342,7 +358,9 @@ class ConfigManager:
                     f.write(HEADERS_TEMPLATE)
                 logger.debug(f"Created default headers file: {headers_path}")
             except Exception as e:
-                logger.error(f"Failed to create headers file: {headers_path}, error: {e}")
+                logger.error(
+                    f"Failed to create headers file: {headers_path}, error: {e}"
+                )
                 success = False
 
         # Create empty proxy file
@@ -384,7 +402,9 @@ class ConfigManager:
                 logger.debug(f"Deleted configuration file: {config_path}")
                 return True
             except Exception as e:
-                logger.error(f"Failed to delete configuration file: {config_path}, error: {e}")
+                logger.error(
+                    f"Failed to delete configuration file: {config_path}, error: {e}"
+                )
                 return False
         else:
             # Delete specific configuration item
@@ -401,7 +421,9 @@ class ConfigManager:
                 current = config
                 for part in parts:
                     if part not in current or not isinstance(current[part], dict):
-                        return True  # Parent doesn't exist, consider deletion successful
+                        return (
+                            True  # Parent doesn't exist, consider deletion successful
+                        )
                     current = current[part]
 
                 if last_key in current:

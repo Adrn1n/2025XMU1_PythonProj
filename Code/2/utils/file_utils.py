@@ -54,7 +54,7 @@ async def write_to_file(
         if backup and file_path.exists():
             backup_path = file_path.with_suffix(f".{int(time.time())}.bak")
             file_path.rename(backup_path)
-            logger.debug(f"【FILE_UTILS】Backup created: {backup_path}")
+            logger.debug(f"[FILE_UTILS]: Backup created: {backup_path}")
 
         # Write data
         async with aiofiles.open(file_path, "w", encoding="utf-8") as file:
@@ -144,7 +144,7 @@ async def read_from_file(
         logger.error(f"File operation failed: {str(e)}")
         return default
     except Exception as e:
-        logger.error(f"【FILE_UTILS】Unknown error: {str(e)}")
+        logger.error(f"[FILE_UTILS]: Unknown error: {str(e)}")
         return default
 
 
@@ -171,7 +171,6 @@ async def save_search_results(
     }
 
     if save_timestamp:
-        data_to_save["timestamp"] = time.time()
-        data_to_save["formatted_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        data_to_save: Dict[str, any] = {"results": results, "timestamp": time.time()}
 
     return await write_to_file(data_to_save, file_path, logger=logger)

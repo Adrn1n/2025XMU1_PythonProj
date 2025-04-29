@@ -122,7 +122,8 @@ class BaiduScraper(BaseScraper):
 
         return ""
 
-    def find_link_container(self, link_tag, result):
+    @staticmethod
+    def find_link_container(link_tag, result):
         """
         Find the container element for a link
 
@@ -159,7 +160,8 @@ class BaiduScraper(BaseScraper):
 
         return container
 
-    def extract_from_container(self, container, selectors):
+    @staticmethod
+    def extract_from_container(container, selectors):
         """
         Extract text from specified elements within a container
 
@@ -231,7 +233,8 @@ class BaiduScraper(BaseScraper):
 
         return related_links
 
-    def merge_entries(self, target, source):
+    @staticmethod
+    def merge_entries(target, source):
         """
         Merge two entries, combining source content into target
 
@@ -399,14 +402,14 @@ class BaiduScraper(BaseScraper):
         Parse Baidu search results
         """
         if self.logger:
-            self.logger.debug("【BAIDU】Start parsing search results page")
+            self.logger.debug("[BAIDU]: Start parsing search results page")
         results = soup.select("div[class*='c-container'][class*='result']")
         if not results:
             if self.logger:
-                self.logger.error("【BAIDU】No search results found")
+                self.logger.error("[BAIDU]: No search results found")
             return []
         if self.logger:
-            self.logger.info(f"【BAIDU】Found {len(results)} search results")
+            self.logger.info(f"[BAIDU]: Found {len(results)} search results")
 
         data = []
         for result in results:
@@ -417,7 +420,7 @@ class BaiduScraper(BaseScraper):
             # Extract other data
             content = self.extract_main_content(result)
             source = self.extract_main_source(result)
-            time = self.extract_time(result)
+            time_info = self.extract_time(result)
             related_links = self.extract_related_links(result, main_links)
 
             if title or url:
@@ -427,7 +430,7 @@ class BaiduScraper(BaseScraper):
                         "url": url,
                         "content": content,
                         "source": source,
-                        "time": time,
+                        "time": time_info,
                         "more": [],
                         "related_links": related_links,
                     }
@@ -445,7 +448,7 @@ class BaiduScraper(BaseScraper):
         start_time = time.time()
         if self.logger:
             self.logger.info(
-                f"【BAIDU】Scraping started for query: '{query}', pages: {num_pages}"
+                f"[BAIDU]: Scraping started for query: '{query}', pages: {num_pages}"
             )
         all_results = []
 
@@ -501,12 +504,12 @@ class BaiduScraper(BaseScraper):
 
         if cache_to_file and cache_file:
             if self.logger:
-                self.logger.info(f"【BAIDU】Saving URL cache to file: {cache_file}")
+                self.logger.info(f"[BAIDU]: Saving URL cache to file: {cache_file}")
             self.url_cache.save_to_file(cache_file)
 
         elapsed = time.time() - start_time
         if self.logger:
             self.logger.info(
-                f"【BAIDU】Search completed, retrieved {len(all_results)} results, elapsed time: {elapsed:.2f}s"
+                f"[BAIDU]: Search completed, retrieved {len(all_results)} results, elapsed time: {elapsed:.2f}s"
             )
         return all_results
