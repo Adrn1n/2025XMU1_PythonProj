@@ -1,5 +1,6 @@
 .DS_Store
 __pycache__/
+**/.idea/*
 **TEMP**
 **TMP**
 **temp**
@@ -7,4 +8,5 @@ __pycache__/
 **/logs/*
 **/cache/*
 **/config/*
+**/data/*
 **/.obsidian/*

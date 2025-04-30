@@ -32,7 +32,7 @@ def parse_args() -> argparse.Namespace:
         "-p",
         "--pages",
         type=int,
-        default=1,
+        default=None,
         help="Number of pages to scrape (default: 1)",
     )
     parser.add_argument(
@@ -211,6 +211,21 @@ async def main():
             if not query:
                 print("Error: No search keyword provided, exiting")
                 return None
+
+            if args.pages is None:
+                pages_str = input("Number of pages to scrape (default: 1): ").strip()
+                if pages_str:
+                    try:
+                        args.pages = int(pages_str)
+                        if args.pages <= 0:
+                            print("Warning: Invalid page number, using default (1)")
+                            args.pages = 1
+                    except ValueError:
+                        print("Warning: Invalid page number, using default (1)")
+                        args.pages = 1
+                else:
+                    args.pages = 1
+
             if not args.no_save_results and not args.output:
                 save_choice = (
                     input("Save search results to file? (y/[n]): ").strip().lower()
