@@ -36,6 +36,11 @@ class BaiduScraper(BaseScraper):
         "div[class*=source-text], div[class*=showurl], div[class*=small]",
     ]
 
+    # Constants for advertisement detection
+    AD_STYLE_KEYWORDS = ["!important"]
+    AD_CLASS_KEYWORDS = ["tuiguang"]
+    AD_TAG_SELECTORS = ["span.ec-tuiguang"]
+
     def extract_main_title_and_link(self, result) -> Tuple[str, str]:
         """
         Extract title and link from search result
@@ -397,6 +402,33 @@ class BaiduScraper(BaseScraper):
 
         return self.final_deduplicate_results(data)
 
+    def is_advertisement(self, result) -> bool:
+        """
+        Check if a search result is an advertisement using predefined constants.
+
+        Args:
+            result: BeautifulSoup element representing a search result
+
+        Returns:
+            True if the element is an advertisement, False otherwise
+        """
+        # Check style attribute for keywords
+        style_attr = result.get("style", "")
+        if any(keyword in style_attr for keyword in self.AD_STYLE_KEYWORDS):
+            return True
+
+        # Check for ad-specific class names
+        classes = result.get("class", [])
+        class_str = " ".join(classes) if classes else ""
+        if any(keyword in class_str for keyword in self.AD_CLASS_KEYWORDS):
+            return True
+
+        # Check for ad tags inside the result
+        if any(result.select_one(selector) for selector in self.AD_TAG_SELECTORS):
+            return True
+
+        return False
+
     def parse_results(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
         """
         Parse Baidu search results
@@ -413,6 +445,10 @@ class BaiduScraper(BaseScraper):
 
         data = []
         for result in results:
+            # Skip Advertisements
+            if self.is_advertisement(result):
+                continue
+
             # Extract main title and link
             title, url = self.extract_main_title_and_link(result)
             main_links = [url] if url else []  # List of main links to exclude
