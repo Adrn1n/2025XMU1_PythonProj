@@ -3,44 +3,44 @@ from typing import Any, Dict, List, Optional, Union
 from pathlib import Path
 import json
 
-# Create logger
+# Create logger for this module
 logger = logging.getLogger(__name__)
 
-# Default configuration templates
+# Default configuration templates used if config files are missing
 DEFAULT_CONFIG_TEMPLATES = {
     "paths": {
         "config_dir": "config",
         "cache_dir": "cache",
         "log_dir": "logs",
-        "data_dir": "data",
+        "data_dir": "data",  # Directory for general data storage
     },
     "scraper": {
-        "filter_ads": True,
-        "max_semaphore": 25,
-        "batch_size": 25,
-        "max_concurrent_pages": 5,
-        "timeout": 3,
-        "retries": 0,
-        "min_sleep": 0.1,
-        "max_sleep": 0.3,
-        "max_redirects": 5,
-        "cache_size": 1000,
+        "filter_ads": True,  # Whether to filter out advertisement results
+        "max_semaphore": 25,  # Max concurrent network requests globally
+        "batch_size": 25,  # Number of URLs to process in parallel batches
+        "max_concurrent_pages": 5,  # Max search result pages to scrape concurrently
+        "timeout": 3,  # Network request timeout in seconds
+        "retries": 0,  # Number of retries for failed requests
+        "min_sleep": 0.1,  # Minimum delay between requests (seconds)
+        "max_sleep": 0.3,  # Maximum delay between requests (seconds)
+        "max_redirects": 5,  # Maximum number of redirects to follow for a URL
+        "cache_size": 1000,  # Maximum number of items in the URL cache
     },
     "logging": {
-        "console_level": "INFO",
-        "file_level": "DEBUG",
-        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        "date_format": "%Y-%m-%d %H:%M:%S",
+        "console_level": "INFO",  # Default log level for console output
+        "file_level": "DEBUG",  # Default log level for file output
+        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # Log message format
+        "date_format": "%Y-%m-%d %H:%M:%S",  # Timestamp format in logs
     },
     "files": {
-        "headers_file": "config/headers.txt",
-        "proxy_file": "config/proxy.txt",
-        "search_cache_file": "cache/baidu_search_res.json",
-        "log_file": "logs/scraper.log",
+        "headers_file": "config/headers.txt",  # Path to HTTP headers file
+        "proxy_file": "config/proxy.txt",  # Path to proxy list file
+        "search_cache_file": "cache/baidu_search_res.json",  # Default cache file for search results (may be overridden)
+        "log_file": "logs/scraper.log",  # Default log file path
     },
 }
 
-# Default HTTP headers template
+# Default HTTP headers template written to headers.txt if it doesn't exist
 HEADERS_TEMPLATE = """
 GET / HTTP/1.1
 Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7
@@ -61,88 +61,73 @@ sec-ch-ua: "Chromium";v="134", "Not:A-Brand";v="24", "Google Chrome";v="134"
 sec-ch-ua-mobile: ?0
 sec-ch-ua-platform: "Windows"
 
-"""
+"""  # Note the trailing blank line to potentially separate multiple header blocks
 
 
 class ConfigManager:
-    """Configuration manager for unified project configuration management"""
+    """Manages loading, saving, and accessing JSON configuration files."""
 
     def __init__(
         self, config_dir: Union[str, Path] = "config", create_if_missing: bool = True
     ):
         """
-        Initialize configuration manager
+        Initialize the ConfigManager.
 
         Args:
-            config_dir: Configuration directory path
-            create_if_missing: Whether to create the directory if it doesn't exist
+            config_dir: The directory where configuration files are stored.
+            create_if_missing: If True, create the config directory if it doesn't exist.
         """
         self.config_dir = Path(config_dir)
+        # In-memory cache for loaded configurations to avoid repeated file reads
         self.config_cache: Dict[str, Dict[str, Any]] = {}
 
-        # Create configuration directory if needed and it doesn't exist
+        # Create the configuration directory if specified and it doesn't exist
         if create_if_missing and not self.config_dir.exists():
             try:
                 self.config_dir.mkdir(parents=True, exist_ok=True)
                 logger.info(f"Created configuration directory: {self.config_dir}")
             except Exception as e:
+                # Log error but allow continuation; loading will use defaults
                 logger.error(f"Failed to create configuration directory: {e}")
 
     def get_config_path(self, name: str) -> Path:
-        """
-        Get configuration file path
-
-        Args:
-            name: Configuration name (without .json extension)
-
-        Returns:
-            Configuration file path
-        """
+        """Construct the full path to a configuration file."""
         return self.config_dir / f"{name}.json"
 
     def config_exists(self, name: str) -> bool:
-        """
-        Check if configuration file exists
-
-        Args:
-            name: Configuration name
-
-        Returns:
-            Whether the configuration file exists
-        """
+        """Check if a specific configuration file exists."""
         return self.get_config_path(name).exists()
 
     def load_config(
         self, name: str, default: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Load configuration file
+        Load a configuration file by name. Returns cached version if available.
 
         Args:
-            name: Configuration name (without .json extension)
-            default: Default value if configuration doesn't exist
+            name: The name of the configuration (e.g., 'paths', 'scraper').
+            default: A default dictionary to return if the file doesn't exist or fails to load.
 
         Returns:
-            Configuration dictionary
+            The loaded configuration dictionary or the default value.
         """
-        # If configuration is cached, return directly
+        # Return cached config if already loaded
         if name in self.config_cache:
             return self.config_cache[name]
 
-        # Get configuration file path
         config_path = self.get_config_path(name)
 
-        # If configuration file doesn't exist, return default value
+        # If file doesn't exist, return the provided default or an empty dict
         if not config_path.exists():
             logger.debug(f"Configuration file doesn't exist: {config_path}")
             return {} if default is None else default
 
-        # Try to load configuration
+        # Try loading the JSON configuration from the file
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
 
-            # Cache and return configuration
+            # Store the loaded config in the cache
             self.config_cache[name] = config
             logger.debug(f"Successfully loaded configuration: {name}")
             return config
@@ -160,60 +145,56 @@ class ConfigManager:
 
     def get(self, name: str, key: str, default: Any = None) -> Any:
         """
-        Get configuration item
+        Get a specific value from a loaded configuration. Supports nested keys.
 
         Args:
-            name: Configuration name
-            key: Configuration item key or path (use . for nested, e.g., 'server.host')
-            default: Default value
+            name: The name of the configuration.
+            key: The key of the value to retrieve. Use dot notation for nested keys (e.g., 'server.host').
+            default: The default value to return if the key is not found.
 
         Returns:
-            Configuration value
+            The configuration value or the default.
         """
-        config = self.load_config(name)
+        config = self.load_config(name)  # Load config (uses cache if available)
 
-        # Handle nested keys
+        # Handle nested keys using dot notation
         if "." in key:
             parts = key.split(".")
-            # Recursively get nested value
             value = config
+            # Traverse the dictionary structure
             for part in parts:
                 if not isinstance(value, dict) or part not in value:
-                    return default
+                    return default  # Key path not found
                 value = value[part]
             return value
-
-        return config.get(key, default)
+        else:
+            # Handle top-level keys
+            return config.get(key, default)
 
     def get_all_configs(self) -> List[str]:
-        """
-        Get all available configuration names
-
-        Returns:
-            List of configuration names
-        """
+        """Get a list of names of all available .json configuration files."""
         configs = []
         for file in self.config_dir.glob("*.json"):
-            configs.append(file.stem)
+            configs.append(file.stem)  # Get the filename without extension
         return configs
 
     def deep_merge(
         self, base: Dict[str, Any], override: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Deep merge two configuration dictionaries
+        Recursively merge two dictionaries. Values in 'override' take precedence.
 
         Args:
-            base: Base configuration
-            override: Configuration to override
+            base: The base dictionary.
+            override: The dictionary with overriding values.
 
         Returns:
-            Merged configuration
+            A new dictionary representing the merged result.
         """
-        result = base.copy()
+        result = base.copy()  # Start with a copy of the base dictionary
 
         for key, value in override.items():
-            # If both sides are dictionaries, recursively merge
+            # If the key exists in both and both values are dictionaries, merge recursively
             if (
                 key in result
                 and isinstance(result[key], dict)
@@ -221,7 +202,7 @@ class ConfigManager:
             ):
                 result[key] = self.deep_merge(result[key], value)
             else:
-                # Otherwise directly override
+                # Otherwise, the value from 'override' replaces the value in 'result'
                 result[key] = value
 
         return result
@@ -230,42 +211,43 @@ class ConfigManager:
         self, name: str, config: Dict[str, Any], merge: bool = False
     ) -> bool:
         """
-        Save configuration to file
+        Save a configuration dictionary to a JSON file.
 
         Args:
-            name: Configuration name
-            config: Configuration dictionary
-            merge: Whether to merge with existing configuration
+            name: The name of the configuration.
+            config: The configuration dictionary to save.
+            merge: If True, merge the provided config with the existing file content before saving.
 
         Returns:
-            Whether saving was successful
+            True if saving was successful, False otherwise.
         """
-        # Ensure configuration directory exists
+        # Ensure the configuration directory exists
         self.config_dir.mkdir(parents=True, exist_ok=True)
 
-        # Get configuration file path
         config_path = self.get_config_path(name)
+        final_config = config
 
-        # If merging is required, load existing configuration first
+        # If merging, load the existing config and merge with the new one
         if merge and config_path.exists():
             try:
                 with open(config_path, "r", encoding="utf-8") as f:
                     existing_config = json.load(f)
-                # Deep merge configurations
-                merged_config = self.deep_merge(existing_config, config)
-                config = merged_config
+                # Perform a deep merge
+                final_config = self.deep_merge(existing_config, config)
             except Exception as e:
                 logger.warning(
-                    f"Configuration merge failed: {e}, will directly overwrite"
+                    f"Configuration merge failed for '{name}': {e}. Overwriting file."
                 )
+                # Fallback to overwriting if merge fails
 
-        # Save configuration
+        # Save the final configuration dictionary to the file
         try:
             with open(config_path, "w", encoding="utf-8") as f:
-                json.dump(config, f, ensure_ascii=False, indent=2)
+                # Use indent for readability, ensure_ascii=False for non-ASCII chars
+                json.dump(final_config, f, ensure_ascii=False, indent=2)
 
-            # Update cache
-            self.config_cache[name] = config
+            # Update the in-memory cache with the saved configuration
+            self.config_cache[name] = final_config
             logger.debug(f"Successfully saved configuration: {name}")
             return True
 
@@ -277,51 +259,57 @@ class ConfigManager:
 
     def set(self, name: str, key: str, value: Any, create_parents: bool = True) -> bool:
         """
-        Set configuration item
+        Set a specific value in a configuration and save the file. Supports nested keys.
 
         Args:
-            name: Configuration name
-            key: Configuration item key or path (use . for nested, e.g., 'server.host')
-            value: Configuration value
-            create_parents: Whether to create non-existent parent configurations
+            name: The name of the configuration.
+            key: The key to set (use dot notation for nested keys).
+            value: The value to set.
+            create_parents: If True, create intermediate dictionaries for nested keys if they don't exist.
 
         Returns:
-            Whether setting was successful
+            True if setting and saving were successful, False otherwise.
         """
-        config = self.load_config(name)
+        config = self.load_config(name)  # Load current config
 
         # Handle nested keys
         if "." in key:
             parts = key.split(".")
-            last_key = parts.pop()
+            last_key = parts.pop()  # The final key to set
 
-            # Recursively find or create parent configurations
+            # Traverse or create parent dictionaries
             current = config
             for part in parts:
                 if part not in current or not isinstance(current[part], dict):
                     if create_parents:
-                        current[part] = {}
+                        current[part] = {}  # Create missing parent dict
                     else:
-                        logger.error(f"Parent configuration does not exist: {part}")
-                        return False
-                current = current[part]
+                        logger.error(
+                            f"Parent configuration does not exist: {part} in {name}"
+                        )
+                        return False  # Cannot set value if parent doesn't exist and creation is disabled
+                current = current[part]  # Move to the next level
 
-            current[last_key] = value
+            current[last_key] = value  # Set the value at the final level
         else:
+            # Handle top-level keys
             config[key] = value
 
+        # Save the modified configuration back to the file
         return self.save_config(name, config)
 
     def ensure_default_configs(self) -> bool:
         """
-        Ensure all default configuration files exist, create if missing
+        Ensure default directories and configuration files exist, creating them if necessary.
+
+        Uses templates defined in DEFAULT_CONFIG_TEMPLATES and HEADERS_TEMPLATE.
 
         Returns:
-            Whether all configurations were successfully created
+            True if all defaults were ensured successfully, False otherwise.
         """
-        success = True
+        overall_success = True
 
-        # Create base directories with standardized logging
+        # Ensure base directories from 'paths' template exist
         paths_config = DEFAULT_CONFIG_TEMPLATES["paths"]
         for dir_name in paths_config.values():
             path = Path(dir_name)
@@ -333,16 +321,17 @@ class ConfigManager:
                     logger.error(
                         f"[CONFIG_MANAGER]: Failed to create directory: {path}, error: {e}"
                     )
-                    success = False
+                    overall_success = False  # Mark failure but continue
 
-        # Write configuration files
-        for name, config in DEFAULT_CONFIG_TEMPLATES.items():
+        # Ensure default JSON configuration files exist
+        for name, config_template in DEFAULT_CONFIG_TEMPLATES.items():
             if not self.config_exists(name):
-                if not self.save_config(name, config):
+                # Save the default template content to the file
+                if not self.save_config(name, config_template):
                     logger.error(
                         f"[CONFIG_MANAGER]: Failed to create default configuration: {name}"
                     )
-                    success = False
+                    overall_success = False
                 else:
                     logger.debug(
                         f"[CONFIG_MANAGER]: Created default configuration: {name}"
@@ -352,7 +341,7 @@ class ConfigManager:
                     f"[CONFIG_MANAGER]: Configuration already exists, skipping creation: {name}"
                 )
 
-        # Create default headers.txt
+        # Ensure default headers.txt exists
         headers_path = Path(paths_config["config_dir"]) / "headers.txt"
         if not headers_path.exists():
             try:
@@ -363,42 +352,44 @@ class ConfigManager:
                 logger.error(
                     f"Failed to create headers file: {headers_path}, error: {e}"
                 )
-                success = False
+                overall_success = False
 
-        # Create empty proxy file
+        # Ensure default (empty) proxy.txt exists
         proxy_path = Path(paths_config["config_dir"]) / "proxy.txt"
         if not proxy_path.exists():
             try:
                 with open(proxy_path, "w", encoding="utf-8") as f:
+                    # Add a comment explaining the format
                     f.write(
                         "# One proxy per line, format: http://host:port or https://host:port\n"
                     )
                 logger.debug(f"Created default proxy file: {proxy_path}")
             except Exception as e:
                 logger.error(f"Failed to create proxy file: {proxy_path}, error: {e}")
-                success = False
+                overall_success = False
 
-        return success
+        return overall_success
 
     def delete(self, name: str, key: Optional[str] = None) -> bool:
         """
-        Delete configuration item or entire configuration file
+        Delete a specific configuration key or an entire configuration file.
 
         Args:
-            name: Configuration name
-            key: Configuration item key to delete (None means delete entire configuration file)
+            name: The name of the configuration.
+            key: The key to delete (dot notation for nested keys). If None, delete the entire file.
 
         Returns:
-            Whether deletion was successful
+            True if deletion was successful, False otherwise.
         """
         if key is None:
-            # Delete entire configuration file
+            # Delete the entire configuration file
             config_path = self.get_config_path(name)
             if not config_path.exists():
-                return True
+                return True  # File doesn't exist, consider deletion successful
 
             try:
-                config_path.unlink()
+                config_path.unlink()  # Delete the file
+                # Remove from cache if present
                 if name in self.config_cache:
                     del self.config_cache[name]
                 logger.debug(f"Deleted configuration file: {config_path}")
@@ -409,39 +400,49 @@ class ConfigManager:
                 )
                 return False
         else:
-            # Delete specific configuration item
+            # Delete a specific key within the configuration
             config = self.load_config(name)
             if not config:
-                return True
+                return True  # Config is empty or doesn't exist, key effectively deleted
 
+            key_found = False
+            # Handle nested keys
             if "." in key:
-                # Handle nested keys
                 parts = key.split(".")
                 last_key = parts.pop()
 
-                # Recursively find parent configuration
+                # Traverse to the parent dictionary
                 current = config
                 for part in parts:
                     if part not in current or not isinstance(current[part], dict):
                         return (
-                            True  # Parent doesn't exist, consider deletion successful
+                            True  # Parent path doesn't exist, key effectively deleted
                         )
                     current = current[part]
 
+                # Delete the key if it exists in the parent
                 if last_key in current:
                     del current[last_key]
+                    key_found = True
             else:
+                # Handle top-level keys
                 if key in config:
                     del config[key]
+                    key_found = True
 
-            return self.save_config(name, config)
+            # If the key was found and deleted, save the modified config
+            if key_found:
+                return self.save_config(name, config)
+            else:
+                return True  # Key wasn't found, consider deletion successful
 
     def clear_cache(self, name: Optional[str] = None) -> None:
         """
-        Clear configuration cache
+        Clear the in-memory configuration cache.
 
         Args:
-            name: Configuration name to clear (None means clear all)
+            name: The name of the specific configuration to clear from the cache.
+                  If None, clear the entire cache.
         """
         if name is None:
             self.config_cache.clear()

@@ -12,35 +12,47 @@ from utils.url_utils import batch_fetch_real_urls
 
 
 class BaiduScraper(BaseScraper):
-    """Baidu Search Results Scraper"""
+    """Scraper specifically designed for Baidu search result pages."""
 
-    # CSS selectors for extracting content
-    TITLE_SELECTORS = ["h3[class*='title']", "h3[class*='t']"]
-    CONTENT_SELECTORS = [
+    # CSS selectors used to extract specific elements from Baidu's HTML structure.
+    # These are based on observed patterns and may need updates if Baidu changes its layout.
+    TITLE_SELECTORS = [
+        "h3[class*='title']",
+        "h3[class*='t']",
+    ]  # Selectors for the main result title/link
+    CONTENT_SELECTORS = [  # Selectors for the main result summary/description
         "div[class*='desc']",
         "div[class*='text']",
         "span[class*='content-right']",
         "span[class*='text']",
     ]
-    SOURCE_SELECTORS = [
-        "div[class*='showurl'], div[class*='source-text']",
-        "span[class*='showurl'], span[class*='source-text'], span.c-color-gray",
-    ]
-    TIME_SELECTORS = ["span[class*='time']", "span.c-color-gray2", "span.n2n9e2q"]
-    RELATED_CONTENT_SELECTORS = [
+    SOURCE_SELECTORS = (
+        [  # Selectors for the source URL or name displayed below the result
+            "div[class*='showurl'], div[class*='source-text']",
+            "span[class*='showurl'], span[class*='source-text'], span.c-color-gray",
+        ]
+    )
+    TIME_SELECTORS = [
+        "span[class*='time']",
+        "span.c-color-gray2",
+        "span.n2n9e2q",
+    ]  # Selectors for the timestamp
+    RELATED_CONTENT_SELECTORS = [  # Selectors for content within related/sub-links
         "div[class*=text], div[class*=abs], div[class*=desc], div[class*=content]",
         "p[class*=text], p[class*=desc], p[class*=content]",
         "span[class*=text], span[class*=desc], span[class*=content], span[class*=clamp]",
     ]
-    RELATED_SOURCE_SELECTORS = [
+    RELATED_SOURCE_SELECTORS = [  # Selectors for source within related/sub-links
         "span[class*=small], span[class*=showurl], span[class*=source-text], span[class*=site-name]",
         "div[class*=source-text], div[class*=showurl], div[class*=small]",
     ]
 
-    # Constants for advertisement detection
-    AD_STYLE_KEYWORDS = ["!important"]
-    AD_CLASS_KEYWORDS = ["tuiguang"]
-    AD_TAG_SELECTORS = ["span.ec-tuiguang"]
+    # Constants used for identifying advertisement results
+    AD_STYLE_KEYWORDS = ["!important"]  # Keywords often found in inline styles of ads
+    AD_CLASS_KEYWORDS = [
+        "tuiguang"
+    ]  # Class names commonly associated with ads ('推广')
+    AD_TAG_SELECTORS = ["span.ec-tuiguang"]  # Specific tags indicating ads
 
     def __init__(
         self,
@@ -63,6 +75,7 @@ class BaiduScraper(BaseScraper):
         log_level: int = logging.INFO,
         log_file: Optional[Union[str, Path]] = None,
     ):
+        """Initialize the BaiduScraper."""
         super().__init__(
             headers=headers,
             proxies=proxies,
@@ -81,37 +94,27 @@ class BaiduScraper(BaseScraper):
             log_level=log_level,
             log_file=log_file,
         )
-        self.filter_ads = filter_ads
-        self.max_concurrent_pages = max_concurrent_pages
+        self.filter_ads = filter_ads  # Flag to control advertisement filtering
+        self.max_concurrent_pages = (
+            max_concurrent_pages  # Max pages to scrape concurrently
+        )
 
     def extract_main_title_and_link(self, result) -> Tuple[str, str]:
-        """
-        Extract title and link from search result
-
-        Args:
-            result: BeautifulSoup element representing a search result
-
-        Returns:
-            Tuple of (title, link URL)
-        """
+        """Extract the main title text and link URL from a single search result block."""
         for selector in self.TITLE_SELECTORS:
             title_tag = result.select_one(selector)
             if title_tag:
-                a_tag = title_tag.find("a")
+                a_tag = title_tag.find(
+                    "a"
+                )  # The link is usually within an <a> tag inside the title <h3>
                 if a_tag:
-                    return a_tag.get_text(strip=True), a_tag.get("href", "")
-        return "", ""
+                    title = a_tag.get_text(strip=True)
+                    url = a_tag.get("href", "")  # Get the raw URL (might be a redirect)
+                    return title, url
+        return "", ""  # Return empty strings if not found
 
     def extract_main_content(self, result) -> str:
-        """
-        Extract content summary from search result
-
-        Args:
-            result: BeautifulSoup element representing a search result
-
-        Returns:
-            Content text
-        """
+        """Extract the content summary/description text from a single search result block."""
         for selector in self.CONTENT_SELECTORS:
             element = result.select_one(selector)
             if element:
@@ -120,38 +123,31 @@ class BaiduScraper(BaseScraper):
 
     def extract_main_source(self, result) -> str:
         """
-        Extract source information; returns empty if multiple matches
-
-        Args:
-            result: BeautifulSoup element representing a search result
-
-        Returns:
-            Source text or empty string
+        Extract the source information (e.g., display URL or site name).
+        Returns an empty string if multiple potential sources are found to avoid ambiguity.
         """
         for selector in self.SOURCE_SELECTORS:
             elements = result.select(selector)
             if elements:
+                # Only return if exactly one match is found
                 return elements[0].get_text(strip=True) if len(elements) == 1 else ""
         return ""
 
     def extract_time(self, result) -> str:
         """
-        Extract time information; returns empty if multiple matches
-
-        Args:
-            result: BeautifulSoup element representing a search result
-
-        Returns:
-            Time string or empty string
+        Extract the timestamp information (e.g., date).
+        Returns an empty string if multiple potential timestamps are found.
+        Includes special handling for ambiguous selectors like 'span.c-color-gray2'.
         """
         for selector in self.TIME_SELECTORS:
             elements = result.select(selector)
             if not elements:
                 continue
 
-            # Special handling for c-color-gray2 selector
+            # Special handling for 'span.c-color-gray2' which can be ambiguous
             if selector == "span.c-color-gray2":
-                # Filter elements that have only class attribute with value c-color-gray2
+                # Filter elements that *only* have the class 'c-color-gray2'
+                # This helps distinguish it from other uses of the class (e.g., in source)
                 filtered_elements = [
                     el
                     for el in elements
@@ -160,44 +156,39 @@ class BaiduScraper(BaseScraper):
                 if len(filtered_elements) == 1:
                     return filtered_elements[0].get_text(strip=True)
                 elif len(filtered_elements) > 1:
-                    return ""
-            # Logic for other selectors
+                    return ""  # Ambiguous, return empty
+            # Standard logic for other time selectors
             else:
                 if len(elements) == 1:
                     return elements[0].get_text(strip=True)
                 elif len(elements) > 1:
-                    return ""
+                    return ""  # Ambiguous, return empty
 
         return ""
 
     @staticmethod
     def find_link_container(link_tag, result):
         """
-        Find the container element for a link
-
-        Args:
-            link_tag: The link tag to find container for
-            result: The parent search result element
-
-        Returns:
-            Container element or None
+        Attempt to find the logical container element for a related/sub-link within a main result block.
+        This helps associate content/source/time with the correct sub-link.
+        Traverses up the DOM tree from the link tag.
         """
-        # Look for container with specific class types first
         container = None
         current = link_tag.parent
+        # Traverse upwards until the main result block is reached
         while current and current != result:
+            # Prioritize divs with common container-like class names
             if current.name == "div" and current.get("class"):
                 class_str = " ".join(current.get("class", []))
-                # Match common container class keywords
                 if any(
                     kw in class_str.lower()
                     for kw in ["item", "container", "result", "sitelink"]
                 ):
                     container = current
-                    break
+                    break  # Found a likely container
             current = current.parent
 
-        # If no specific container found, use nearest parent div
+        # Fallback: If no specific container is found, use the nearest parent div
         if not container:
             current = link_tag.parent
             while current and current != result:
@@ -210,22 +201,14 @@ class BaiduScraper(BaseScraper):
 
     @staticmethod
     def extract_from_container(container, selectors):
-        """
-        Extract text from specified elements within a container
-
-        Args:
-            container: Container element to search within
-            selectors: List of CSS selectors to try
-
-        Returns:
-            Extracted text or empty string
-        """
+        """Extract the first matching text using a list of selectors within a given container."""
         if not container:
             return ""
 
         for selector in selectors:
             elements = container.select(selector)
             if elements:
+                # Return the text of the first element found
                 return elements[0].get_text(strip=True)
         return ""
 
@@ -233,29 +216,25 @@ class BaiduScraper(BaseScraper):
         self, result, main_links: List[str]
     ) -> List[Dict[str, Any]]:
         """
-        Extract related links from a result, excluding provided main links
-
-        Args:
-            result: BeautifulSoup object representing a search result
-            main_links: List of main link URLs to exclude
-
-        Returns:
-            List of dictionaries with related link details
+        Extract related/sub-links found within a main search result block.
+        Excludes links already identified as the main link for this result.
+        Attempts to find associated content, source, and time for each related link.
         """
         related_links = []
 
-        # Traverse all <a> tags in the result
+        # Find all <a> tags within the current result block
         for link_tag in result.find_all("a"):
             href = link_tag.get("href", "")
+            title = link_tag.get_text(strip=True)
 
-            # Skip if the link is in main_links or lacks title/href
-            if href in main_links or not (href and link_tag.get_text(strip=True)):
+            # Skip if it's one of the main links or if it lacks a URL or title text
+            if not href or not title or href in main_links:
                 continue
 
-            title = link_tag.get_text(strip=True)
+            # Try to find the container element for this specific related link
             container = self.find_link_container(link_tag, result)
 
-            # Extract additional data from the container
+            # Extract content, source, and time from the identified container (if any)
             content = (
                 self.extract_from_container(container, self.RELATED_CONTENT_SELECTORS)
                 if container
@@ -266,16 +245,17 @@ class BaiduScraper(BaseScraper):
                 if container
                 else ""
             )
+            # Use the general time extraction logic on the container
             time_str = self.extract_time(container) if container else ""
 
             related_links.append(
                 {
                     "title": title,
-                    "url": href,
+                    "url": href,  # Raw URL
                     "content": content,
                     "source": source,
                     "time": time_str,
-                    "more": [],
+                    "more": [],  # Placeholder for potential future merging
                 }
             )
 
@@ -284,76 +264,77 @@ class BaiduScraper(BaseScraper):
     @staticmethod
     def merge_entries(target, source):
         """
-        Merge two entries, combining source content into target
-
-        Args:
-            target: Target entry to merge into
-            source: Source entry to merge from
+        Merge data from a 'source' entry into a 'target' entry.
+        Used during deduplication to combine information from duplicate URLs.
+        Fills missing fields in the target and aggregates additional title/content pairs into 'more'.
         """
-        # Fill missing fields
-        if not target["title"] and source["title"]:
+        # Fill missing fields in the target entry with data from the source
+        if not target.get("title") and source.get("title"):
             target["title"] = source["title"]
-        if not target["content"] and source["content"]:
+        if not target.get("content") and source.get("content"):
             target["content"] = source["content"]
-        if not target["source"] and source["source"]:
+        if not target.get("source") and source.get("source"):
             target["source"] = source["source"]
-        if not target["time"] and source["time"]:
+        if not target.get("time") and source.get("time"):
             target["time"] = source["time"]
 
-        # Merge more field
-        if source["title"] and source["content"]:
-            target["more"].append({source["title"]: source["content"]})
+        # Add the source's title/content pair to the target's 'more' list if both exist
+        if source.get("title") and source.get("content"):
+            # Ensure 'more' exists and is a list
+            target.setdefault("more", []).append({source["title"]: source["content"]})
 
-        # Merge related links
+        # Merge related links from source into target
         if "related_links" in source:
             target.setdefault("related_links", []).extend(source["related_links"])
 
     def deduplicate_results(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Deduplicate processing: merge duplicate main links and their related links
-
-        Args:
-            data: List of search result entries
-
-        Returns:
-            Deduplicated list of entries
+        Deduplicate search results based on URL. Merges entries with the same URL.
+        Also deduplicates related links within each entry.
         """
+        # --- Deduplicate Main Entries ---
         main_map = {}
-        # Handle main link deduplication
         for entry in data:
-            key = entry.get("url", "")
+            key = entry.get("url", "")  # Use URL as the key for deduplication
             if not key:
-                continue
+                continue  # Skip entries without a URL
 
             if key in main_map:
-                # Merge into existing entry
+                # If URL already exists, merge the current entry into the existing one
                 existing = main_map[key]
                 self.merge_entries(existing, entry)
             else:
+                # If URL is new, add the entry to the map
                 main_map[key] = entry
 
+        # Convert the map back to a list of unique main entries
         results = list(main_map.values())
 
-        # Handle related links deduplication
+        # --- Deduplicate Related Links within each Main Entry ---
         for entry in results:
             rl_map = {}
-            new_more = entry["more"].copy()
+            new_more = entry.get("more", []).copy()
 
             for rl in entry["related_links"]:
                 rl_key = rl.get("url", "")
+                if not rl_key:
+                    continue  # Skip related links without a URL
 
-                # If related link matches main link, merge into main
+                # If a related link's URL matches the main entry's URL, merge it into the main entry
                 if rl_key == entry.get("url", ""):
                     self.merge_entries(entry, rl)
-                    continue
+                    continue  # Don't add it to the related links map
 
-                # Deduplicate between related links
+                # Deduplicate among other related links
                 if rl_key in rl_map:
+                    # Merge into the existing related link entry
                     existing_rl = rl_map[rl_key]
                     self.merge_entries(existing_rl, rl)
                 else:
+                    # Add the new related link to the map
                     rl_map[rl_key] = rl
 
+            # Update the entry with the deduplicated related links and merged 'more' data
             entry["related_links"] = list(rl_map.values())
             entry["more"] = new_more
 
@@ -362,173 +343,171 @@ class BaiduScraper(BaseScraper):
     def initial_deduplicate_results(
         self, data: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """
-        Preliminary deduplication
-
-        Args:
-            data: List of search result entries
-
-        Returns:
-            Initially deduplicated results
-        """
+        """Perform preliminary deduplication based on the raw URLs extracted."""
         return self.deduplicate_results(data)
 
     def final_deduplicate_results(
         self, data: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """
-        Final deduplication based on real URLs
-
-        Args:
-            data: List of search result entries
-
-        Returns:
-            Finally deduplicated results
-        """
+        """Perform final deduplication after resolving redirect URLs."""
         return self.deduplicate_results(data)
 
     async def process_real_urls(
         self, session: aiohttp.ClientSession, data: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """
-        Process Baidu redirect links to get real URLs
-
-        Args:
-            session: Active client session
-            data: List of search result entries
-
-        Returns:
-            List of entries with resolved URLs
+        Resolve Baidu's redirect links to get the final target URLs for main and related links.
+        Uses batch processing for efficiency.
         """
         if not data:
             return []
 
+        # Collect all URLs (main and related) that need resolution
         all_links = []
         link_map = {}
+
         for i, entry in enumerate(data):
-            if entry["url"]:
+            if entry.get("url"):
                 all_links.append(entry["url"])
                 link_map[(i, "main")] = len(all_links) - 1
-            for j, link in enumerate(entry["related_links"]):
-                if link["url"]:
-                    all_links.append(link["url"])
+            for j, link_data in enumerate(entry.get("related_links", [])):
+                if link_data.get("url"):
+                    all_links.append(link_data["url"])
                     link_map[(i, j)] = len(all_links) - 1
 
         if not all_links:
-            return data
+            return data  # No URLs to resolve
 
+        # Use a semaphore to limit concurrent URL resolution requests
         semaphore = asyncio.Semaphore(self.max_semaphore)
-        headers = {k: v for k, v in self.headers.items() if k != "Cookie"}
+        # Prepare headers for URL resolution (often good to remove cookies)
+        resolve_headers = {
+            k: v for k, v in self.headers.items() if k.lower() != "cookie"
+        }
+
+        # Fetch real URLs in batches using the utility function
         real_urls = await batch_fetch_real_urls(
-            session,
-            all_links,
-            headers,
-            self.proxies,
-            "https://www.baidu.com",
-            semaphore,
-            self.timeout,
-            self.retries,
-            self.min_sleep,
-            self.max_sleep,
-            self.max_redirects,
-            self.logger,
-            self.url_cache.cache,
-            self.batch_size,
+            session=session,
+            urls=all_links,
+            headers=resolve_headers,
+            proxy_list=self.proxies,
+            base="https://www.baidu.com",  # Base URL for resolving relative redirects
+            max_semaphore=semaphore,
+            timeout=self.timeout,
+            retries=self.retries,
+            min_sleep=self.min_sleep,
+            max_sleep=self.max_sleep,
+            max_redirects=self.max_redirects,
+            logger=self.logger,
+            cache=self.url_cache.cache,  # Pass the cache dictionary
+            batch_size=self.batch_size,
         )
 
-        for (i, pos), url_idx in link_map.items():
-            if url_idx < len(real_urls):
-                if pos == "main":
-                    data[i]["url"] = real_urls[url_idx]
+        # Update the original data structure with the resolved URLs
+        for (entry_idx, position), resolved_url_idx in link_map.items():
+            if resolved_url_idx < len(real_urls):
+                resolved_url = real_urls[resolved_url_idx]
+                if position == "main":
+                    data[entry_idx]["url"] = resolved_url
                 else:
-                    data[i]["related_links"][pos]["url"] = real_urls[url_idx]
+                    if "related_links" in data[entry_idx] and position < len(
+                        data[entry_idx]["related_links"]
+                    ):
+                        data[entry_idx]["related_links"][position]["url"] = resolved_url
 
+        # Perform a final deduplication pass now that real URLs are available
         return self.final_deduplicate_results(data)
 
     def is_advertisement(self, result) -> bool:
-        """
-        Check if a search result is an advertisement using predefined constants.
-
-        Args:
-            result: BeautifulSoup element representing a search result
-
-        Returns:
-            True if the element is an advertisement, False otherwise
-        """
-        # Check style attribute for keywords
+        """Check if a given search result element is likely an advertisement."""
+        # Check for specific keywords in the inline style attribute
         style_attr = result.get("style", "")
         if any(keyword in style_attr for keyword in self.AD_STYLE_KEYWORDS):
             return True
 
-        # Check for ad-specific class names
+        # Check for specific keywords in the class attribute
         classes = result.get("class", [])
         class_str = " ".join(classes) if classes else ""
         if any(keyword in class_str for keyword in self.AD_CLASS_KEYWORDS):
             return True
 
-        # Check for ad tags inside the result
+        # Check if specific ad-indicating tags exist within the result
         if any(result.select_one(selector) for selector in self.AD_TAG_SELECTORS):
             return True
 
-        return False
+        return False  # Not identified as an ad
 
     def parse_results(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
-        """
-        Parse Baidu search results
-        """
+        """Parse the HTML of the search results area (`#content_left`) to extract structured data."""
         if self.logger:
-            self.logger.debug("[BAIDU]: Start parsing search results page")
+            self.logger.debug("[BAIDU]: Start parsing search results page content")
+
+        # Select all main result container divs
         results = soup.select("div[class*='c-container'][class*='result']")
         if not results:
             if self.logger:
-                self.logger.error("[BAIDU]: No search results found")
+                self.logger.warning("[BAIDU]: No main result containers found on page.")
             return []
         if self.logger:
-            self.logger.info(f"[BAIDU]: Found {len(results)} search results")
+            self.logger.info(
+                f"[BAIDU]: Found {len(results)} potential result containers"
+            )
 
-        data = []
-        for result in results:
-            # Skip Advertisements
-            if self.filter_ads and self.is_advertisement(result):
+        parsed_data = []
+        for result_container in results:
+            # Skip if identified as an advertisement and filtering is enabled
+            if self.filter_ads and self.is_advertisement(result_container):
                 if self.logger:
                     self.logger.debug("[BAIDU]: Skipping advertisement result.")
                 continue
 
             # Extract main title and link
-            title, url = self.extract_main_title_and_link(result)
-            main_links = [url] if url else []  # List of main links to exclude
+            title, url = self.extract_main_title_and_link(result_container)
+            # Keep track of the main link to avoid re-extracting it as a related link
+            main_links_in_result = [url] if url else []
 
-            # Extract other data
-            content = self.extract_main_content(result)
-            source = self.extract_main_source(result)
-            time_info = self.extract_time(result)
-            related_links = self.extract_related_links(result, main_links)
+            # Extract other main data points
+            content = self.extract_main_content(result_container)
+            source = self.extract_main_source(result_container)
+            time_info = self.extract_time(result_container)
+            # Extract related links found within this result container
+            related_links = self.extract_related_links(
+                result_container, main_links_in_result
+            )
 
+            # Only add the result if it has at least a title or a URL
             if title or url:
-                data.append(
+                parsed_data.append(
                     {
                         "title": title,
-                        "url": url,
+                        "url": url,  # Raw URL
                         "content": content,
                         "source": source,
                         "time": time_info,
-                        "more": [],
+                        "more": [],  # Initialize 'more' list
                         "related_links": related_links,
                     }
                 )
 
-        return self.initial_deduplicate_results(data)
+        # Perform initial deduplication based on raw URLs before resolving redirects
+        return self.initial_deduplicate_results(parsed_data)
 
-    async def scrape_single_page(self, session: aiohttp.ClientSession, query: str, page: int) -> List[Dict[str, Any]]:
+    async def scrape_single_page(
+        self, session: aiohttp.ClientSession, query: str, page: int
+    ) -> List[Dict[str, Any]]:
         """Scrape a single page of Baidu search results."""
+        # Baidu uses 'pn' parameter for pagination, starting from 0 for page 1, 10 for page 2, etc.
         page_start = page * 10
         if self.logger:
-            self.logger.info(f"Scraping page {page+1}")
+            self.logger.info(
+                f"Scraping page {page+1} (pn={page_start}) for query '{query}'"
+            )
 
+        # Construct URL parameters for the Baidu search request
         params = {
-            "wd": query,
-            "pn": str(page_start),
-            "ie": "utf-8",
+            "wd": query,  # Search keyword
+            "pn": str(page_start),  # Page number offset
+            "ie": "utf-8",  # Input encoding
             "usm": "1",
             "rsv_pq": str(int(time.time() * 1000)),
             "rsv_t": str(int(time.time() * 1000)),
@@ -536,34 +515,43 @@ class BaiduScraper(BaseScraper):
 
         # Use the semaphore from BaseScraper to limit concurrent HTTP requests
         async with self.semaphore:
+            # Fetch the HTML content using the base class method
             html_content = await self.get_page(
-                url="https://www.baidu.com/s",
+                url="https://www.baidu.com/s",  # Baidu search URL
                 params=params,
                 use_proxy=self.use_proxy,
                 headers=self.headers,
-                session=session,
+                session=session,  # Pass the shared session
             )
 
         if not html_content:
             if self.logger:
-                self.logger.error(f"Failed to get page {page+1}, skipping")
-            return []
+                self.logger.error(
+                    f"Failed to retrieve HTML for page {page+1}, skipping."
+                )
+            return []  # Return empty list on failure
 
         try:
+            # Parse the HTML using BeautifulSoup with lxml parser for speed
             soup = BeautifulSoup(html_content, "lxml")
+            # Find the main content area containing search results
             content_left = soup.find("div", id="content_left")
             if not content_left:
+                # This often indicates a CAPTCHA page or an error page from Baidu
                 if self.logger:
                     self.logger.error(
-                        f"No content found, possibly due to Baidu's anti-crawling mechanism, skipping page {page+1}"
+                        f"Could not find '#content_left' div on page {page+1}. Possible anti-scraping measure or empty results. Skipping."
                     )
                 return []
 
+            # Parse the results from the content area
             return self.parse_results(content_left)
         except Exception as e:
             if self.logger:
-                self.logger.error(f"Error parsing page {page+1}: {e}")
-            return []
+                self.logger.error(
+                    f"Error parsing HTML for page {page+1}: {e}", exc_info=True
+                )
+            return []  # Return empty list on parsing error
 
     async def scrape(
         self,
@@ -572,6 +560,10 @@ class BaiduScraper(BaseScraper):
         cache_to_file: bool = True,
         cache_file: Optional[Path] = None,
     ) -> List[Dict[str, Any]]:
+        """
+        Main method to scrape multiple pages of Baidu search results for a given query.
+        Handles concurrent page fetching, result parsing, URL resolution, and deduplication.
+        """
         start_time = time.time()
         if self.logger:
             self.logger.info(
@@ -579,44 +571,65 @@ class BaiduScraper(BaseScraper):
             )
         all_results = []
 
+        # Use a single aiohttp session for all requests in this scrape operation
         async with aiohttp.ClientSession() as session:
-            # Process pages in batches according to max_concurrent_pages
+            # Process pages in batches based on the max_concurrent_pages setting
             for i in range(0, num_pages, self.max_concurrent_pages):
+                # Determine the range of pages for the current batch
                 batch_pages = range(i, min(i + self.max_concurrent_pages, num_pages))
                 if self.logger:
-                    self.logger.info(f"Processing page batch: {batch_pages.start + 1} to {batch_pages.stop}")
+                    self.logger.info(
+                        f"Processing page batch: {batch_pages.start + 1} to {batch_pages.stop}"
+                    )
 
-                tasks = [self.scrape_single_page(session, query, page) for page in batch_pages]
-                page_batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+                # Create tasks for scraping each page in the current batch concurrently
+                tasks = [
+                    self.scrape_single_page(session, query, page)
+                    for page in batch_pages
+                ]
+                # Run tasks concurrently and gather results
+                page_batch_results = await asyncio.gather(
+                    *tasks,
+                    return_exceptions=True,  # Capture exceptions instead of raising them immediately
+                )
 
+                # Process results from the batch
                 for result in page_batch_results:
                     if isinstance(result, list):
+                        # Extend the main list with successfully parsed results
                         all_results.extend(result)
                     elif isinstance(result, Exception):
+                        # Log errors that occurred during scraping of individual pages
                         if self.logger:
-                            self.logger.error(f"Error during page scraping batch: {result}")
+                            self.logger.error(
+                                f"Error during page scraping batch: {result}"
+                            )
 
-                # Delay between batches if there are more pages to process
+                # Introduce a delay between batches if more pages are remaining
                 if batch_pages.stop < num_pages:
                     delay = random.uniform(self.min_sleep, self.max_sleep)
                     if self.logger:
                         self.logger.debug(
-                            f"Waiting {delay:.2f}s before scraping next batch"
+                            f"Waiting {delay:.2f}s before scraping next batch..."
                         )
                     await asyncio.sleep(delay)
 
+            # --- Post-Scraping Processing ---
             if self.logger:
                 self.logger.info(
-                    f"[BAIDU]: Performing initial deduplication of {len(all_results)} results"
+                    f"[BAIDU]: Performing initial deduplication on {len(all_results)} raw results..."
                 )
+            # Deduplicate based on raw URLs first to potentially reduce resolution work
             deduplicated_results = self.initial_deduplicate_results(all_results)
 
             if self.logger:
                 self.logger.info(
-                    f"[BAIDU]: Resolving {len(deduplicated_results)} URLs after initial deduplication"
+                    f"[BAIDU]: Resolving real URLs for {len(deduplicated_results)} results after initial deduplication..."
                 )
+            # Resolve redirect URLs to get final target URLs
             final_results = await self.process_real_urls(session, deduplicated_results)
 
+        # Save the URL cache to file if enabled
         if cache_to_file and cache_file:
             if self.logger:
                 self.logger.info(f"[BAIDU]: Saving URL cache to file: {cache_file}")
@@ -625,6 +638,6 @@ class BaiduScraper(BaseScraper):
         elapsed = time.time() - start_time
         if self.logger:
             self.logger.info(
-                f"[BAIDU]: Search completed, retrieved {len(final_results)} results, elapsed time: {elapsed:.2f}s"
+                f"[BAIDU]: Search completed for '{query}'. Retrieved {len(final_results)} final results. Elapsed time: {elapsed:.2f}s"
             )
         return final_results
