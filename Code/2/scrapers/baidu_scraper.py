@@ -1,10 +1,11 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 import asyncio
 import aiohttp
 from bs4 import BeautifulSoup
 from pathlib import Path
 import time
 import random
+import logging
 
 from scrapers.base_scraper import BaseScraper
 from utils.url_utils import batch_fetch_real_urls
@@ -40,6 +41,46 @@ class BaiduScraper(BaseScraper):
     AD_STYLE_KEYWORDS = ["!important"]
     AD_CLASS_KEYWORDS = ["tuiguang"]
     AD_TAG_SELECTORS = ["span.ec-tuiguang"]
+
+    def __init__(
+        self,
+        headers: Dict[str, str],
+        proxies: List[str] = None,
+        filter_ads: bool = True,
+        use_proxy: bool = False,
+        max_semaphore: int = 25,
+        batch_size: int = 25,
+        timeout: int = 3,
+        retries: int = 0,
+        min_sleep: float = 0.1,
+        max_sleep: float = 0.3,
+        max_redirects: int = 5,
+        cache_size: int = 1000,
+        cache_ttl: int = 24 * 60 * 60,
+        enable_logging: bool = False,
+        log_to_console: bool = True,
+        log_level: int = logging.INFO,
+        log_file: Optional[Union[str, Path]] = None,
+    ):
+        super().__init__(
+            headers=headers,
+            proxies=proxies,
+            use_proxy=use_proxy,
+            max_semaphore=max_semaphore,
+            batch_size=batch_size,
+            timeout=timeout,
+            retries=retries,
+            min_sleep=min_sleep,
+            max_sleep=max_sleep,
+            max_redirects=max_redirects,
+            cache_size=cache_size,
+            cache_ttl=cache_ttl,
+            enable_logging=enable_logging,
+            log_to_console=log_to_console,
+            log_level=log_level,
+            log_file=log_file,
+        )
+        self.filter_ads = filter_ads
 
     def extract_main_title_and_link(self, result) -> Tuple[str, str]:
         """
@@ -446,7 +487,9 @@ class BaiduScraper(BaseScraper):
         data = []
         for result in results:
             # Skip Advertisements
-            if self.is_advertisement(result):
+            if self.filter_ads and self.is_advertisement(result):
+                if self.logger:
+                    self.logger.debug("[BAIDU]: Skipping advertisement result.")
                 continue
 
             # Extract main title and link

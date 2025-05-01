@@ -88,6 +88,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--proxy", action="store_true", help="Use proxy for all requests"
     )
+    parser.add_argument(
+        "--no-filter-ads",
+        action="store_false",
+        dest="filter_ads",
+        help="Disable advertisement filtering (default: enabled)",
+    )
     return parser.parse_args()
 
 
@@ -112,6 +118,7 @@ def get_scraper_config(
 
     # Build configuration dictionary, prioritizing command line arguments
     config = {
+        "filter_ads": args.filter_ads,
         "max_semaphore": args.concurrent or scraper_config.get("max_semaphore", 25),
         "batch_size": args.batch_size or scraper_config.get("batch_size", 25),
         "timeout": args.timeout or scraper_config.get("timeout", 3),
@@ -129,6 +136,7 @@ def get_scraper_config(
     return {
         "headers": HEADERS,
         "proxies": PROXY_LIST,
+        "filter_ads": config["filter_ads"],
         "use_proxy": bool(args.proxy),
         "max_semaphore": config["max_semaphore"],
         "batch_size": config["batch_size"],

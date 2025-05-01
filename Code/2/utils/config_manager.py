@@ -15,6 +15,7 @@ DEFAULT_CONFIG_TEMPLATES = {
         "data_dir": "data",
     },
     "scraper": {
+        "filter_ads": True,
         "max_semaphore": 25,
         "batch_size": 25,
         "timeout": 3,
