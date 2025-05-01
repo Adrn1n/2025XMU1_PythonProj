@@ -570,8 +570,7 @@ class BaiduScraper(BaseScraper):
                     continue
 
                 page_results = self.parse_results(content_left)
-                processed_results = await self.process_real_urls(session, page_results)
-                all_results.extend(processed_results)
+                all_results.extend(page_results)
 
                 if page < num_pages - 1:
                     delay = random.uniform(self.min_sleep, self.max_sleep)
@@ -581,6 +580,18 @@ class BaiduScraper(BaseScraper):
                         )
                     await asyncio.sleep(delay)
 
+            if self.logger:
+                self.logger.info(
+                    f"[BAIDU]: Performing initial deduplication of {len(all_results)} results"
+                )
+            deduplicated_results = self.initial_deduplicate_results(all_results)
+
+            if self.logger:
+                self.logger.info(
+                    f"[BAIDU]: Resolving {len(deduplicated_results)} URLs after initial deduplication"
+                )
+            final_results = await self.process_real_urls(session, deduplicated_results)
+
         if cache_to_file and cache_file:
             if self.logger:
                 self.logger.info(f"[BAIDU]: Saving URL cache to file: {cache_file}")
@@ -589,6 +600,6 @@ class BaiduScraper(BaseScraper):
         elapsed = time.time() - start_time
         if self.logger:
             self.logger.info(
-                f"[BAIDU]: Search completed, retrieved {len(all_results)} results, elapsed time: {elapsed:.2f}s"
+                f"[BAIDU]: Search completed, retrieved {len(final_results)} results, elapsed time: {elapsed:.2f}s"
             )
-        return all_results
+        return final_results
