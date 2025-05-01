@@ -48,11 +48,9 @@ class BaiduScraper(BaseScraper):
     ]
 
     # Constants used for identifying advertisement results
-    AD_STYLE_KEYWORDS = ["!important"]  # Keywords often found in inline styles of ads
-    AD_CLASS_KEYWORDS = [
-        "tuiguang"
-    ]  # Class names commonly associated with ads ('推广')
-    AD_TAG_SELECTORS = ["span.ec-tuiguang"]  # Specific tags indicating ads
+    AD_STYLE_KEYWORDS = ["!important"]
+    AD_CLASS_KEYWORDS = ["tuiguang"]
+    AD_TAG_SELECTORS = ["[class*='tuiguang']"]
 
     def __init__(
         self,
