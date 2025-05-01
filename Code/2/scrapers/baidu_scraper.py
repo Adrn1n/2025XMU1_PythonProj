@@ -48,6 +48,7 @@ class BaiduScraper(BaseScraper):
         proxies: List[str] = None,
         filter_ads: bool = True,
         use_proxy: bool = False,
+        max_concurrent_pages: int = 5,
         max_semaphore: int = 25,
         batch_size: int = 25,
         timeout: int = 3,
@@ -81,6 +82,7 @@ class BaiduScraper(BaseScraper):
             log_file=log_file,
         )
         self.filter_ads = filter_ads
+        self.max_concurrent_pages = max_concurrent_pages
 
     def extract_main_title_and_link(self, result) -> Tuple[str, str]:
         """
@@ -517,6 +519,52 @@ class BaiduScraper(BaseScraper):
 
         return self.initial_deduplicate_results(data)
 
+    async def scrape_single_page(self, session: aiohttp.ClientSession, query: str, page: int) -> List[Dict[str, Any]]:
+        """Scrape a single page of Baidu search results."""
+        page_start = page * 10
+        if self.logger:
+            self.logger.info(f"Scraping page {page+1}")
+
+        params = {
+            "wd": query,
+            "pn": str(page_start),
+            "ie": "utf-8",
+            "usm": "1",
+            "rsv_pq": str(int(time.time() * 1000)),
+            "rsv_t": str(int(time.time() * 1000)),
+        }
+
+        # Use the semaphore from BaseScraper to limit concurrent HTTP requests
+        async with self.semaphore:
+            html_content = await self.get_page(
+                url="https://www.baidu.com/s",
+                params=params,
+                use_proxy=self.use_proxy,
+                headers=self.headers,
+                session=session,
+            )
+
+        if not html_content:
+            if self.logger:
+                self.logger.error(f"Failed to get page {page+1}, skipping")
+            return []
+
+        try:
+            soup = BeautifulSoup(html_content, "lxml")
+            content_left = soup.find("div", id="content_left")
+            if not content_left:
+                if self.logger:
+                    self.logger.error(
+                        f"No content found, possibly due to Baidu's anti-crawling mechanism, skipping page {page+1}"
+                    )
+                return []
+
+            return self.parse_results(content_left)
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error parsing page {page+1}: {e}")
+            return []
+
     async def scrape(
         self,
         query: str,
@@ -527,56 +575,33 @@ class BaiduScraper(BaseScraper):
         start_time = time.time()
         if self.logger:
             self.logger.info(
-                f"[BAIDU]: Scraping started for query: '{query}', pages: {num_pages}"
+                f"[BAIDU]: Scraping started for query: '{query}', pages: {num_pages}, concurrent pages: {self.max_concurrent_pages}"
             )
         all_results = []
 
         async with aiohttp.ClientSession() as session:
-            for page in range(num_pages):
-                page_start = page * 10
+            # Process pages in batches according to max_concurrent_pages
+            for i in range(0, num_pages, self.max_concurrent_pages):
+                batch_pages = range(i, min(i + self.max_concurrent_pages, num_pages))
                 if self.logger:
-                    self.logger.info(f"Scraping page {page+1}/{num_pages}")
+                    self.logger.info(f"Processing page batch: {batch_pages.start + 1} to {batch_pages.stop}")
 
-                params = {
-                    "wd": query,
-                    "pn": str(page_start),
-                    "ie": "utf-8",
-                    "usm": "1",
-                    "rsv_pq": str(int(time.time() * 1000)),
-                    "rsv_t": str(int(time.time() * 1000)),
-                }
+                tasks = [self.scrape_single_page(session, query, page) for page in batch_pages]
+                page_batch_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                html_content = await self.get_page(
-                    url="https://www.baidu.com/s",
-                    params=params,
-                    use_proxy=self.use_proxy,
-                    headers=self.headers,
-                )
-                if not html_content:
-                    if self.logger:
-                        self.logger.error(f"Failed to get page {page+1}, skipping")
-                    continue
+                for result in page_batch_results:
+                    if isinstance(result, list):
+                        all_results.extend(result)
+                    elif isinstance(result, Exception):
+                        if self.logger:
+                            self.logger.error(f"Error during page scraping batch: {result}")
 
-                # soup = BeautifulSoup(html_content, "html.parser")
-                soup = BeautifulSoup(
-                    html_content, "lxml"
-                )  # Use lxml parser for better performance
-                content_left = soup.find("div", id="content_left")
-                if not content_left:
-                    if self.logger:
-                        self.logger.error(
-                            f"No content found, possibly due to Baidu's anti-crawling mechanism, skipping page {page+1}"
-                        )
-                    continue
-
-                page_results = self.parse_results(content_left)
-                all_results.extend(page_results)
-
-                if page < num_pages - 1:
+                # Delay between batches if there are more pages to process
+                if batch_pages.stop < num_pages:
                     delay = random.uniform(self.min_sleep, self.max_sleep)
                     if self.logger:
                         self.logger.debug(
-                            f"Waiting {delay:.2f}s before scraping next page"
+                            f"Waiting {delay:.2f}s before scraping next batch"
                         )
                     await asyncio.sleep(delay)
 

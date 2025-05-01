@@ -66,6 +66,11 @@ def parse_args() -> argparse.Namespace:
         "--no-log-file", action="store_true", help="Do not write logs to file"
     )
     parser.add_argument(
+        "--concurrent-pages",
+        type=int,
+        help=f"Concurrent pages scraping limit (default: {DEFAULT_CONFIG.get('max_concurrent_pages', 5)})",
+    )
+    parser.add_argument(
         "--concurrent",
         type=int,
         help=f"Concurrent requests limit (default: {DEFAULT_CONFIG['max_semaphore']})",
@@ -119,6 +124,8 @@ def get_scraper_config(
     # Build configuration dictionary, prioritizing command line arguments
     config = {
         "filter_ads": args.filter_ads,
+        "max_concurrent_pages": args.concurrent_pages
+        or scraper_config.get("max_concurrent_pages", 5),
         "max_semaphore": args.concurrent or scraper_config.get("max_semaphore", 25),
         "batch_size": args.batch_size or scraper_config.get("batch_size", 25),
         "timeout": args.timeout or scraper_config.get("timeout", 3),
@@ -138,6 +145,7 @@ def get_scraper_config(
         "proxies": PROXY_LIST,
         "filter_ads": config["filter_ads"],
         "use_proxy": bool(args.proxy),
+        "max_concurrent_pages": config["max_concurrent_pages"],
         "max_semaphore": config["max_semaphore"],
         "batch_size": config["batch_size"],
         "timeout": config["timeout"],

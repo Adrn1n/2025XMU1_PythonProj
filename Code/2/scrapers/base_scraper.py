@@ -18,6 +18,7 @@ class BaseScraper:
         headers: Dict[str, str],
         proxies: List[str] = None,
         use_proxy: bool = False,
+        max_concurrent_pages: int = 5,
         max_semaphore: int = 25,
         batch_size: int = 25,
         timeout: int = 3,
@@ -39,6 +40,7 @@ class BaseScraper:
             headers: Complete request headers
             proxies: List of proxy servers
             use_proxy: Whether to use proxies for requests
+            max_concurrent_pages: Max pages to scrape concurrently (used by subclasses)
             max_semaphore: Concurrent request limit
             batch_size: URL batch processing size
             timeout: Request timeout in seconds
@@ -56,6 +58,7 @@ class BaseScraper:
         self.headers = headers
         self.proxies = proxies or []
         self.use_proxy = use_proxy
+        self.max_concurrent_pages = max_concurrent_pages
         self.max_semaphore = max_semaphore
         self.batch_size = batch_size
         self.timeout = timeout

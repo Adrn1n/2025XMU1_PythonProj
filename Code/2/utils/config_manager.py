@@ -18,6 +18,7 @@ DEFAULT_CONFIG_TEMPLATES = {
         "filter_ads": True,
         "max_semaphore": 25,
         "batch_size": 25,
+        "max_concurrent_pages": 5,
         "timeout": 3,
         "retries": 0,
         "min_sleep": 0.1,
