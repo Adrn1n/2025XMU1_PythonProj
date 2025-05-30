@@ -264,12 +264,11 @@ async def main():
     try:
         args = parse_args()
 
-        # If no arguments provided and not in interactive mode, show help and exit
-        if len(sys.argv) == 1 and not args.interactive:
-            parser = argparse.ArgumentParser(description="Baidu Scraper Testing Tool")
-            parser.print_help()
-            show_usage_examples()
-            return 0
+        # If no arguments provided, automatically enable interactive mode
+        if len(sys.argv) == 1:
+            args.interactive = True
+            print("No arguments provided, running in interactive mode...")
+            print("Type 'python scraper_test.py --help' for command line options.\n")
 
         # Determine runtime flags based on arguments or interactive prompts
         save_results = (

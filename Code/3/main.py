@@ -515,14 +515,11 @@ async def main():
     """Main function to run the Baidu-Ollama integration."""
     args = parse_args()
 
-    # If no arguments provided and not in interactive mode, show help and exit
-    if len(sys.argv) == 1 and not args.interactive:
-        parser = argparse.ArgumentParser(
-            description="Baidu Search + Ollama LLM Integration"
-        )
-        parser.print_help()
-        show_usage_examples()
-        return
+    # If no arguments provided, automatically enable interactive mode
+    if len(sys.argv) == 1:
+        args.interactive = True
+        print("No arguments provided, running in interactive mode...")
+        print("Type 'python main.py --help' for command line options.\n")
 
     # Set up logging
     logger = setup_logging(args)
