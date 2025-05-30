@@ -38,6 +38,16 @@ DEFAULT_CONFIG_TEMPLATES = {
         "search_cache_file": "cache/baidu_search_res.json",  # Default cache file for search results (may be overridden)
         "log_file": "logs/scraper.log",  # Default log file path
     },
+    "ollama": {
+        "base_url": "http://localhost:11434",  # Default Ollama API base URL
+        "timeout": 60,  # Default timeout for Ollama API requests
+        "stream": True,  # Whether to use streaming response by default
+        "temperature": 0.7,  # Default temperature for text generation
+        "top_p": 0.9,  # Default top_p value
+        "top_k": 40,  # Default top_k value
+        "default_model": "",  # Default model to use (empty means user will be prompted)
+        "system_prompt": "",  # Default system prompt (empty means use built-in default)
+    },
 }
 
 # Default HTTP headers template written to headers.txt if it doesn't exist

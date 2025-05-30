@@ -632,6 +632,11 @@ class BaiduScraper(BaseScraper):
             if self.logger:
                 self.logger.info(f"[BAIDU]: Saving URL cache to file: {cache_file}")
             self.url_cache.save_to_file(cache_file)
+        else:
+            if self.logger:
+                self.logger.debug(
+                    f"[BAIDU]: Skipping URL cache save, cache_to_file={cache_to_file}, cache_file={cache_file}"
+                )
 
         elapsed = time.time() - start_time
         if self.logger:

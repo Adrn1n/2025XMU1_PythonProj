@@ -21,6 +21,8 @@ config_manager.ensure_default_configs()
 paths_config = config_manager.load_config("paths", DEFAULT_CONFIG_TEMPLATES["paths"])
 # Load file path configurations from the 'files.json' file
 files_config = config_manager.load_config("files", DEFAULT_CONFIG_TEMPLATES["files"])
+# Load Ollama configurations
+ollama_config = config_manager.load_config("ollama", DEFAULT_CONFIG_TEMPLATES["ollama"])
 
 # Convert path strings from config into Path objects
 paths = {key: Path(value) for key, value in paths_config.items()}
@@ -127,7 +129,7 @@ def load_file_lines(file_path: Path) -> List[str]:
     """
     try:
         if not file_path.exists():
-            logger.debug(f"File does not exist, cannot load lines: {file_path}")
+            logger.debug(f"File doesn't exist, cannot load lines: {file_path}")
             return []
         with file_path.open("r", encoding="utf-8") as f:
             # Read lines, strip whitespace, and filter out empty lines
@@ -169,6 +171,7 @@ CONFIG = {
     "proxy_list": proxy_list,  # The full list of proxies
     "proxy": proxy,  # The randomly selected proxy
     "scraper": scraper_config,  # Scraper-specific settings
+    "ollama": ollama_config,  # Ollama-specific settings
 }
 
 # Export commonly used configuration items directly for convenience and backward compatibility
@@ -184,3 +187,4 @@ HEADERS = headers  # Export the selected headers
 PROXY_LIST = proxy_list  # Export the full proxy list
 PROXY = proxy  # Export the selected proxy
 DEFAULT_CONFIG = scraper_config  # Export scraper defaults
+OLLAMA_CONFIG = ollama_config  # Export Ollama configs

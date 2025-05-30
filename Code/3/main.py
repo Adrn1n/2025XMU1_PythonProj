@@ -1,17 +1,33 @@
+"""
+Main application module for Baidu-Ollama integration.
+Provides an interactive command-line interface for using Ollama LLMs with Baidu search results.
+"""
+
 import argparse
-from typing import Any, Dict, List, Optional
+import asyncio
+import logging
+import sys
 import time
 from pathlib import Path
-import logging
-import aiohttp
-import asyncio
-import sys
+from typing import Any, Dict, List, Optional
 
+# Import from project modules
 from scrapers.baidu_scraper import BaiduScraper
 from utils.logging_utils import get_log_level_from_string, setup_logger
 from utils.file_utils import save_search_results
+from utils.ollama_utils import (
+    list_ollama_models,
+    interactive_model_selection,
+    generate_with_ollama,
+    format_search_results_for_ollama,
+    create_system_prompt,
+    create_full_prompt,
+    check_ollama_status,
+    get_model_info,
+    get_recommended_parameters,
+)
 
-# Import optimized configuration from config.py
+# Import configuration
 from config import (
     CONFIG,
     HEADERS,
@@ -19,187 +35,282 @@ from config import (
     LOG_FILE,
     DEFAULT_CONFIG,
     CACHE_DIR,
+    OLLAMA_CONFIG,
+    SEARCH_CACHE_FILE,
 )
 
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Baidu Search Results Scraper")
+    parser = argparse.ArgumentParser(
+        description="Baidu Search + Ollama LLM Integration"
+    )
+
+    # Basic arguments
     parser.add_argument(
-        "query", nargs="?", help="Search keyword (if not specified, prompt for input)"
+        "query",
+        nargs="?",
+        help="Search query or question (if not specified, you'll be prompted)",
     )
     parser.add_argument(
+        "-i", "--interactive", action="store_true", help="Run in interactive mode"
+    )
+    parser.add_argument(
+        "-m",
+        "--model",
+        help="Ollama model to use (if not specified, you'll be prompted to select)",
+    )
+
+    # Search configuration
+    search_group = parser.add_argument_group("Search Options")
+    search_group.add_argument(
         "-p",
         "--pages",
         type=int,
-        default=None,
+        default=1,
         help="Number of pages to scrape (default: 1)",
     )
-    parser.add_argument(
-        "-o", "--output", type=str, help="Output file path (default: auto-generated)"
-    )
-    parser.add_argument(
-        "--no-save-results",
-        action="store_true",
-        help="Do not save search results to file",
-    )
-    parser.add_argument(
-        "--cache-dir", type=str, default=str(CACHE_DIR), help="Cache directory path"
-    )
-    parser.add_argument("--cache-file", type=str, help="URL cache file path")
-    parser.add_argument("--no-cache", action="store_true", help="Do not use URL cache")
-    parser.add_argument(
-        "--clear-cache", action="store_true", help="Clear existing cache"
-    )
-    parser.add_argument(
-        "--log-level",
-        type=str,
-        default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        help="Log level",
-    )
-    parser.add_argument("--log-file", type=str, help="Log file path")
-    parser.add_argument(
-        "--no-log-console", action="store_true", help="Do not display logs in console"
-    )
-    parser.add_argument(
-        "--no-log-file", action="store_true", help="Do not write logs to file"
-    )
-    parser.add_argument(
-        "--concurrent-pages",
-        type=int,
-        help=f"Concurrent pages scraping limit (default: {DEFAULT_CONFIG.get('max_concurrent_pages', 5)})",
-    )
-    parser.add_argument(
-        "--concurrent",
-        type=int,
-        help=f"Concurrent requests limit (default: {DEFAULT_CONFIG['max_semaphore']})",
-    )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        help=f"Batch processing size (default: {DEFAULT_CONFIG['batch_size']})",
-    )
-    parser.add_argument(
-        "--timeout",
-        type=int,
-        help=f"Request timeout in seconds (default: {DEFAULT_CONFIG['timeout']})",
-    )
-    parser.add_argument(
-        "--retries",
-        type=int,
-        help=f"Number of retry attempts for failed requests (default: {DEFAULT_CONFIG['retries']})",
-    )
-    parser.add_argument(
-        "--proxy", action="store_true", help="Use proxy for all requests"
-    )
-    parser.add_argument(
+    search_group.add_argument(
         "--no-filter-ads",
         action="store_false",
         dest="filter_ads",
         help="Disable advertisement filtering (default: enabled)",
     )
+
+    # Ollama configuration
+    ollama_group = parser.add_argument_group("Ollama Options")
+    ollama_group.add_argument(
+        "--ollama-url",
+        default=OLLAMA_CONFIG.get("base_url", "http://localhost:11434"),
+        help="Ollama API base URL",
+    )
+    ollama_group.add_argument(
+        "--temperature",
+        type=float,
+        help="Ollama temperature (uses model-specific defaults if not specified)",
+    )
+    ollama_group.add_argument(
+        "--top-p",
+        type=float,
+        help="Ollama top-p parameter (uses model-specific defaults if not specified)",
+    )
+    ollama_group.add_argument(
+        "--top-k",
+        type=int,
+        help="Ollama top-k parameter (uses model-specific defaults if not specified)",
+    )
+    ollama_group.add_argument(
+        "--context-size", type=int, help="Context size (window) for the model"
+    )
+    ollama_group.add_argument(
+        "--max-tokens", type=int, help="Maximum tokens to generate"
+    )
+    ollama_group.add_argument(
+        "--no-stream",
+        dest="stream",
+        action="store_false",
+        default=OLLAMA_CONFIG.get("stream", True),
+        help="Disable streaming response (wait for complete response)",
+    )
+    ollama_group.add_argument(
+        "--question",
+        help="Specific question to ask the LLM (if different from search query)",
+    )
+
+    # Output/logging configuration
+    output_group = parser.add_argument_group("Output Options")
+    output_group.add_argument("-o", "--output", help="Output file for search results")
+    output_group.add_argument(
+        "--save-results",
+        action="store_true",
+        help="Save search results to file (always enabled in debug mode unless --no-save-results is used)",
+    )
+    output_group.add_argument(
+        "--no-save-results",
+        action="store_true",
+        help="Explicitly disable saving search results (overrides debug mode default)",
+    )
+    output_group.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug mode (shows detailed logging and automatically saves results unless --no-save-results is specified)",
+    )
+    output_group.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Log level",
+    )
+    output_group.add_argument("--log-file", help="Log file path")
+    output_group.add_argument(
+        "--no-log-console",
+        action="store_false",
+        dest="log_console",
+        default=True,
+        help="Don't log to console",
+    )
+
+    # Advanced options
+    advanced_group = parser.add_argument_group("Advanced Options")
+    advanced_group.add_argument(
+        "--cache-dir", type=str, default=str(CACHE_DIR), help="Cache directory path"
+    )
+    advanced_group.add_argument(
+        "--no-cache", action="store_true", help="Do not use URL cache"
+    )
+    advanced_group.add_argument(
+        "--clear-cache", action="store_true", help="Clear existing cache"
+    )
+    advanced_group.add_argument(
+        "--concurrent-pages",
+        type=int,
+        default=DEFAULT_CONFIG.get("max_concurrent_pages", 5),
+        help="Concurrent pages scraping limit",
+    )
+    advanced_group.add_argument(
+        "--concurrent",
+        type=int,
+        default=DEFAULT_CONFIG.get("max_semaphore", 25),
+        help="Concurrent requests limit",
+    )
+    advanced_group.add_argument(
+        "--batch-size",
+        type=int,
+        default=DEFAULT_CONFIG.get("batch_size", 25),
+        help="Batch size for requests",
+    )
+    advanced_group.add_argument(
+        "--timeout",
+        type=int,
+        default=DEFAULT_CONFIG.get("timeout", 3),
+        help="Request timeout in seconds",
+    )
+    advanced_group.add_argument(
+        "--proxy", action="store_true", help="Use proxy for all requests"
+    )
+
     return parser.parse_args()
 
 
-def get_scraper_config(
-    args: argparse.Namespace,
-    log_to_console: bool,
-    log_file_path: Optional[Path],
-) -> Dict[str, Any]:
+def setup_logging(args: argparse.Namespace) -> logging.Logger:
     """
-    Generate scraper configuration based on command line arguments and global config.
+    Set up logging based on command line arguments.
 
     Args:
-        args: Command-line arguments namespace.
-        log_to_console: Flag to enable console logging.
-        log_file_path: Path object for the log file.
+        args: Parsed command line arguments.
 
     Returns:
-        A dictionary containing the scraper's configuration settings.
+        Configured logger instance.
     """
-    # Load scraper config from the unified CONFIG object, falling back to DEFAULT_CONFIG
-    scraper_config = CONFIG.get("scraper", DEFAULT_CONFIG)
-
-    # Build configuration dictionary, prioritizing command line arguments over loaded config
-    config = {
-        "filter_ads": args.filter_ads,
-        "max_concurrent_pages": args.concurrent_pages
-        or scraper_config.get("max_concurrent_pages", 5),
-        "max_semaphore": args.concurrent or scraper_config.get("max_semaphore", 25),
-        "batch_size": args.batch_size or scraper_config.get("batch_size", 25),
-        "timeout": args.timeout or scraper_config.get("timeout", 3),
-        "retries": args.retries or scraper_config.get("retries", 0),
-        "min_sleep": scraper_config.get("min_sleep", 0.1),
-        "max_sleep": scraper_config.get("max_sleep", 0.3),
-        "max_redirects": scraper_config.get("max_redirects", 5),
-        "cache_size": scraper_config.get("cache_size", 1000),
-    }
-
-    # Determine the logging level based on the command line argument
-    log_level = get_log_level_from_string(args.log_level)
-
-    # Construct the final configuration dictionary for the scraper instance
-    return {
-        "headers": HEADERS,
-        "proxies": PROXY_LIST,
-        "filter_ads": config["filter_ads"],
-        "use_proxy": bool(args.proxy),  # Explicitly cast to bool
-        "max_concurrent_pages": config["max_concurrent_pages"],
-        "max_semaphore": config["max_semaphore"],
-        "batch_size": config["batch_size"],
-        "timeout": config["timeout"],
-        "retries": config["retries"],
-        "min_sleep": config["min_sleep"],
-        "max_sleep": config["max_sleep"],
-        "max_redirects": config["max_redirects"],
-        "cache_size": config["cache_size"],
-        "enable_logging": True,  # Always enable logging for the scraper instance
-        "log_level": log_level,
-        "log_file": log_file_path,
-        "log_to_console": log_to_console,
-    }
-
-
-def get_output_file(args: argparse.Namespace, query: str) -> Path:
-    """Determine the output file path for search results."""
-    # Use the path specified in the --output argument if provided
-    if args.output:
-        output_path = Path(args.output)
+    # If debug mode is enabled, set log level to DEBUG
+    if args.debug:
+        log_level = logging.DEBUG
+        print("Debug mode enabled - setting log level to DEBUG")
     else:
-        # Otherwise, construct a path based on the cache directory and query
-        # Prioritize the command line argument for cache directory
-        cache_dir = args.cache_dir
-        if not cache_dir:
-            # Fallback to the path defined in the configuration system
-            cache_dir = CONFIG["paths"].get("cache_dir", str(CACHE_DIR))
+        log_level = get_log_level_from_string(args.log_level)
 
-        # Sanitize the query string for use in the filename
-        safe_query = "".join(c if c.isalnum() else "_" for c in query)
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = Path(cache_dir) / f"baidu_search_{safe_query}_{timestamp}.json"
+    # Determine log file path
+    log_file_path = None
+    if args.log_file:
+        log_file_path = Path(args.log_file)
+    else:
+        log_file_path = Path(LOG_FILE)
 
-    # Ensure the directory for the output file exists
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    return output_path
+    # Ensure log directory exists
+    log_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create logger with the correct name
+    logger = setup_logger(
+        "OllamaIntegrate",  # Changed from BaiduOllama or other name
+        log_level,
+        log_file_path if not args.debug else log_file_path,
+        args.log_console,
+    )
+
+    logger.info("Logger initialized")
+    return logger
+
+
+def setup_scraper(args: argparse.Namespace, logger: logging.Logger) -> BaiduScraper:
+    """
+    Set up the Baidu scraper with appropriate configuration.
+
+    Args:
+        args: Parsed command line arguments.
+        logger: Logger instance.
+
+    Returns:
+        Configured BaiduScraper instance.
+    """
+    # Create scraper with parameters from args
+    # Pass the same log_file and log settings as the main logger to ensure logs go to the same file
+    scraper = BaiduScraper(
+        headers=HEADERS,
+        proxies=PROXY_LIST,
+        filter_ads=args.filter_ads,
+        use_proxy=args.proxy,
+        max_concurrent_pages=args.concurrent_pages,
+        max_semaphore=args.concurrent,
+        batch_size=args.batch_size,
+        timeout=args.timeout,
+        enable_logging=True,
+        log_to_console=args.log_console,
+        log_level=get_log_level_from_string(args.log_level),
+        log_file=(
+            args.log_file if not args.debug else Path(LOG_FILE)
+        ),  # Ensure log_file is set
+    )
+
+    # Clear cache if requested
+    if args.clear_cache:
+        logger.info("Clearing URL cache")
+        scraper.url_cache.clear()
+
+    return scraper
 
 
 async def run_search(
     scraper: BaiduScraper,
     query: str,
     pages: int,
-    cache_file: Optional[Path],
     use_cache: bool,
     logger: logging.Logger,
+    debug: bool = False,  # Add debug parameter for detailed logging
 ) -> List[Dict[str, Any]]:
-    """Execute the search operation using the scraper instance."""
+    """
+    Run the search operation using the scraper.
+
+    Args:
+        scraper: BaiduScraper instance.
+        query: Search query.
+        pages: Number of pages to scrape.
+        use_cache: Whether to use cache.
+        logger: Logger instance.
+        debug: Whether debug mode is enabled.
+
+    Returns:
+        List of search result dictionaries.
+    """
     try:
         logger.info(f"Starting search for '{query}', pages: {pages}")
+        logger.debug(
+            f"Search cache settings: use_cache={use_cache}, debug={debug}, cache_to_file={use_cache and not debug}"
+        )
+
+        # Use the SEARCH_CACHE_FILE for cache
+        cache_file_path = Path(SEARCH_CACHE_FILE) if SEARCH_CACHE_FILE else None
+        if debug:
+            logger.debug(
+                f"Debug mode enabled, cache_file_path will be ignored: {cache_file_path}"
+            )
+
         results = await scraper.scrape(
             query=query,
             num_pages=pages,
-            cache_to_file=use_cache,
-            cache_file=cache_file,
+            cache_to_file=use_cache and not debug,  # Don't cache to file in debug mode
+            cache_file=(
+                cache_file_path if not debug else None
+            ),  # Don't use cache file in debug mode
         )
         logger.info(f"Search completed, retrieved {len(results)} results")
         return results
@@ -211,193 +322,397 @@ async def run_search(
         return []
 
 
+async def save_results_if_needed(
+    search_results: List[Dict[str, Any]],
+    save_results: bool,
+    output_file: Optional[str],
+    query: str,
+    logger: logging.Logger,
+) -> None:
+    """
+    Save search results to file if configured to do so.
+
+    Args:
+        search_results: List of search result dictionaries.
+        save_results: Whether to save results.
+        output_file: Output file path.
+        query: Search query (used in auto-generated filename).
+        logger: Logger instance.
+    """
+    if not search_results or not save_results:
+        return
+
+    # Determine output file path
+    if output_file:
+        output_path = Path(output_file)
+    else:
+        # Use default output path
+        import time
+
+        cache_dir = Path(CACHE_DIR)
+        # Sanitize the query string for use in the filename
+        safe_query = "".join(c if c.isalnum() else "_" for c in query)
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        output_path = cache_dir / f"baidu_search_{safe_query}_{timestamp}.json"
+
+    # Ensure the directory exists
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Save results
+    success = await save_search_results(
+        results=search_results,
+        file_path=output_path,
+        save_timestamp=True,
+        logger=logger,
+    )
+
+    if success:
+        logger.info(f"Search results saved to: {output_path}")
+        print(f"Search results saved to: {output_path}")
+    else:
+        logger.error("Failed to save search results")
+
+
+def print_stats(scraper: BaiduScraper, logger: logging.Logger) -> None:
+    """
+    Print scraper statistics.
+
+    Args:
+        scraper: BaiduScraper instance.
+        logger: Logger instance.
+    """
+    stats = scraper.get_stats()
+    logger.info("Scraper statistics:")
+    logger.info(f" - Total requests: {stats.get('total', 0)}")
+    logger.info(f" - Successful requests: {stats.get('success', 0)}")
+    logger.info(f" - Failed requests: {stats.get('failed', 0)}")
+
+    success_rate = 0
+    if stats.get("total", 0) > 0:
+        success_rate = stats.get("success", 0) / stats.get("total", 1) * 100
+    logger.info(f" - Success rate: {success_rate:.2f}%")
+
+    if "duration" in stats:
+        logger.info(f" - Duration: {stats.get('duration', 0):.2f} seconds")
+
+    if "cache" in stats:
+        cache_stats = stats["cache"]
+        logger.info("Cache statistics:")
+        logger.info(
+            f" - Cache size: {cache_stats.get('size', 0)}/{cache_stats.get('max_size', 0)}"
+        )
+        logger.info(f" - Cache hits: {cache_stats.get('hits', 0)}")
+        logger.info(f" - Cache misses: {cache_stats.get('misses', 0)}")
+
+        # Avoid division by zero if no cache operations occurred
+        total_ops = cache_stats.get("hits", 0) + cache_stats.get("misses", 0)
+        if total_ops > 0:
+            hit_rate = cache_stats.get("hits", 0) / total_ops * 100
+            logger.info(f" - Cache hit rate: {hit_rate:.2f}%")
+
+
+async def setup_ollama_model(
+    args: argparse.Namespace, logger: logging.Logger
+) -> Optional[str]:
+    """
+    Check Ollama status and set up model selection.
+
+    Args:
+        args: Parsed command line arguments.
+        logger: Logger instance.
+
+    Returns:
+        Selected model name or None if setup failed.
+    """
+    # Check if Ollama is running
+    ollama_running = await check_ollama_status(
+        base_url=args.ollama_url, timeout=args.timeout, logger=logger
+    )
+
+    if not ollama_running:
+        logger.error("Ollama server is not running or not responding")
+        print("Error: Ollama server is not running or not responding.")
+        print("Please make sure Ollama is installed and running.")
+        print("Installation instructions: https://ollama.ai/download")
+        return None
+
+    # Get model from args, config, or prompt user
+    model = args.model
+    if not model:
+        # Check if default model is specified in config
+        default_model = OLLAMA_CONFIG.get("default_model", "")
+        if default_model:
+            logger.info(f"Using default model from config: {default_model}")
+            print(f"Using default model: {default_model}")
+            return default_model
+
+        try:
+            print("Fetching available Ollama models...")
+            models = await list_ollama_models(
+                base_url=args.ollama_url, timeout=args.timeout, logger=logger
+            )
+
+            if not models:
+                logger.error("No Ollama models available")
+                print("Error: No Ollama models available.")
+                return None
+
+            model = interactive_model_selection(models, logger)
+            if not model:
+                logger.error("No model selected")
+                print("Error: No model selected.")
+                return None
+
+            # Get model info and print some details
+            model_info = await get_model_info(
+                model=model,
+                base_url=args.ollama_url,
+                timeout=args.timeout,
+                logger=logger,
+            )
+
+            if model_info:
+                print(f"\nSelected model: {model}")
+                if "details" in model_info:
+                    details = model_info["details"]
+                    if "parameter_size" in details:
+                        print(f"Model size: {details.get('parameter_size', 'Unknown')}")
+                    if "family" in details:
+                        print(f"Model family: {details.get('family', 'Unknown')}")
+                    if "quantization_level" in details:
+                        print(
+                            f"Quantization: {details.get('quantization_level', 'Unknown')}"
+                        )
+
+        except Exception as e:
+            logger.error(f"Error during model setup: {str(e)}")
+            print(f"Error: {str(e)}")
+            return None
+
+    return model
+
+
+def show_usage_examples():
+    """Show some usage examples for the script."""
+    print("\nUsage Examples:")
+    print("  1. Interactive mode:")
+    print("     python main.py -i")
+    print("  2. Direct query with default settings:")
+    print('     python main.py "your search query"')
+    print("  3. Specify model and query:")
+    print('     python main.py "your search query" -m llama3')
+    print("  4. Non-streaming mode (wait for complete response):")
+    print('     python main.py "your search query" --no-stream')
+    print("  5. Debug mode with more verbose output:")
+    print('     python main.py "your search query" --debug')
+    print("  6. Custom pages and output file:")
+    print('     python main.py "your search query" -p 3 -o results.json')
+    print("\nFor full list of options, use: python main.py --help")
+    print()
+
+
 async def main():
-    """Main execution function for the Baidu scraper."""
-    # Configuration manager is initialized in config.py
+    """Main function to run the Baidu-Ollama integration."""
+    args = parse_args()
 
-    try:
-        args = parse_args()
+    # If no arguments provided and not in interactive mode, show help and exit
+    if len(sys.argv) == 1 and not args.interactive:
+        parser = argparse.ArgumentParser(
+            description="Baidu Search + Ollama LLM Integration"
+        )
+        parser.print_help()
+        show_usage_examples()
+        return
 
-        # Determine runtime flags based on arguments or interactive prompts
-        save_results = not args.no_save_results
-        log_to_file = not args.no_log_file
-        log_to_console = not args.no_log_console
+    # Set up logging
+    logger = setup_logging(args)
 
-        # Prompt user for missing required arguments if not provided via command line
-        if not args.query:
-            query = input("Please enter search keyword: ").strip()
-            if not query:
-                print("Error: No search keyword provided, exiting")
-                return None  # Indicate error or abnormal exit
+    # Set up scraper
+    scraper = setup_scraper(args, logger)
 
-            # Prompt for number of pages if not specified
-            if args.pages is None:
-                pages_str = input("Number of pages to scrape (default: 1): ").strip()
-                if pages_str:
-                    try:
-                        args.pages = int(pages_str)
-                        if args.pages <= 0:
-                            print("Warning: Invalid page number, using default (1)")
-                            args.pages = 1
-                    except ValueError:
-                        print("Warning: Invalid page number, using default (1)")
-                        args.pages = 1
-                else:
-                    args.pages = 1  # Default to 1 page if input is empty
+    # Get query (from args or input)
+    query = args.query
+    if not query and args.interactive:
+        try:
+            query = input(
+                "Enter search query (or press Enter to skip search): "
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nOperation cancelled by user.")
+            return
 
-            # Prompt for saving results if not disabled and no output path given
-            if not args.no_save_results and not args.output:
-                save_choice = (
-                    input("Save search results to file? (y/[n]): ").strip().lower()
-                )
-                save_results = save_choice == "y"
-            # Prompt for logging to file if not disabled and no log file path given
-            if not args.no_log_file and not args.log_file:
-                log_file_choice = input("Write logs to file? (y/[n]): ").strip().lower()
-                log_to_file = log_file_choice == "y"
-            # Prompt for console logging if not disabled
-            if not args.no_log_console:
-                log_console_choice = (
-                    input("Display logs in console? (y/[n]): ").strip().lower()
-                )
-                log_to_console = log_console_choice == "y"
-        else:
-            query = args.query
-            # Ensure pages defaults to 1 if not provided via CLI or prompt
-            if args.pages is None:
-                args.pages = 1
+    # Check Ollama and select model
+    model = await setup_ollama_model(args, logger)
+    if not model:
+        return
 
-        # Set up the main logger for the application
-        log_file_path = None
-        if log_to_file:
-            if args.log_file:
-                log_file_path = Path(args.log_file)
-            else:
-                # Use log file path from the configuration system if not specified
-                log_file_path = Path(CONFIG["files"].get("log_file", str(LOG_FILE)))
+    # Get optimal parameters for this model if not specified
+    recommended_params = get_recommended_parameters(model, args.context_size)
 
-            # Ensure the log directory exists before setting up the logger
-            log_file_path.parent.mkdir(parents=True, exist_ok=True)
+    # Run search if query is provided
+    search_results = []
+    if query:
+        logger.info(f"Running search for query: {query}")
+        print(f"Searching Baidu for: {query}")
 
-        logger = setup_logger(
-            "baidu_scraper_main",  # Logger name
-            get_log_level_from_string(args.log_level),
-            log_file_path,
-            log_to_console,
+        search_results = await run_search(
+            scraper=scraper,
+            query=query,
+            pages=args.pages,
+            use_cache=not args.no_cache,
+            logger=logger,
+            debug=args.debug,  # Pass debug flag
         )
 
-        # Determine the path for the URL cache file
-        if args.cache_file:
-            cache_file = Path(args.cache_file)
+        if not search_results:
+            logger.warning("No search results found")
+            print("Warning: No search results found.")
         else:
-            # Use cache directory from config, prioritizing command line argument
-            cache_dir = Path(
-                args.cache_dir or CONFIG["paths"].get("cache_dir", str(CACHE_DIR))
+            logger.info(f"Found {len(search_results)} search results")
+            print(f"Found {len(search_results)} search results.")
+
+        # Determine whether to save results:
+        # - In debug mode: save by default unless --no-save-results is specified
+        # - In normal mode: only save if --save-results or -o is specified
+        save_needed = False
+        if args.debug:
+            # In debug mode, save by default unless explicitly disabled
+            save_needed = not args.no_save_results
+        else:
+            # In normal mode, only save if requested
+            save_needed = args.save_results or args.output is not None
+
+        await save_results_if_needed(
+            search_results=search_results,
+            save_results=save_needed,
+            output_file=args.output,
+            query=query,
+            logger=logger,
+        )
+
+        # Print stats if debug is enabled
+        if args.debug:
+            print(
+                "Debug mode enabled - detailed logging information will be displayed."
             )
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            cache_file = cache_dir / "url_cache.json"
+            print("Debug info: search results saved to file:", save_needed)
+            print("Debug info: cache usage enabled:", not args.no_cache)
+            print_stats(scraper, logger)
 
-        logger.info("Baidu Search Results Scraper started")
-
-        # Determine the output file path if results are to be saved
-        output_file = None
-        if save_results:
-            output_file = get_output_file(args, query)
-            logger.info(f"Search results will be saved to: {output_file}")
-
-        # Instantiate and configure the BaiduScraper
-        scraper_config = get_scraper_config(args, log_to_console, log_file_path)
-        scraper = BaiduScraper(**scraper_config)
-
-        # Clear the URL cache if requested via command line argument
-        if args.clear_cache:
-            logger.info("[MAIN]: Clearing URL cache")
-            scraper.url_cache.clear()
-
-        # Execute the search operation
+    # Determine the question to ask the LLM
+    question = args.question if args.question else query
+    if not question:
         try:
-            results = await run_search(
-                scraper=scraper,
-                query=query,
-                pages=args.pages,
-                cache_file=cache_file if not args.no_cache else None,
-                use_cache=not args.no_cache,
-                logger=logger,
-            )
-        except aiohttp.ClientError as e:
-            logger.error(f"[MAIN]: Network request error: {e}")
-            # Attempt to recover partial results from cache if available
-            if not args.no_cache and cache_file.exists():
-                logger.warning(
-                    "[MAIN]: Attempting to load partial results from cache..."
-                )
-                # TODO: Implement logic to recover results from cache if needed
-            results = []
-        except Exception as e:
-            logger.error(
-                f"[MAIN]: Unknown error occurred during search: {str(e)}", exc_info=True
-            )
-            results = []
+            question = input("Enter a question for the LLM: ").strip()
+            if not question:
+                logger.error("No question provided")
+                print("Error: No question provided.")
+                return
+        except (EOFError, KeyboardInterrupt):
+            print("\nOperation cancelled by user.")
+            return
 
-        # Save the search results if applicable
-        if results and save_results and output_file:
-            success = await save_search_results(
-                results=results,
-                file_path=output_file,
-                save_timestamp=True,  # Include timestamp in the saved file
-                logger=logger,
-            )
-            if success:
-                logger.info(f"[MAIN]: Search results saved to: {output_file}")
-            else:
-                logger.error("[MAIN]: Failed to save search results")
-        elif results and not save_results:
-            logger.info("[MAIN]: Search results not saved as per user settings")
-        else:
-            logger.warning("[MAIN]: No search results available to save")
+    # Format the search results for the LLM
+    context = format_search_results_for_ollama(search_results, logger)
 
-        # Output scraper and cache statistics
-        stats = scraper.get_stats()
-        logger.info("[MAIN]: Scraper statistics:")
-        logger.info(f" - Total requests: {stats['total']}")
-        logger.info(f" - Successful requests: {stats['success']}")
-        logger.info(f" - Failed requests: {stats['failed']}")
-        logger.info(f" - Success rate: {stats['success_rate']*100:.2f}%")
-        logger.info(f" - Duration: {stats['duration']:.2f} seconds")
+    # Create the prompt for the LLM
+    system_prompt = create_system_prompt()
+    full_prompt = create_full_prompt(system_prompt, context, question)
 
-        if "cache" in stats:
-            cache_stats = stats["cache"]
-            logger.info("[MAIN]: Cache statistics:")
-            logger.info(
-                f" - Cache size: {cache_stats['size']}/{cache_stats['max_size']}"
-            )
-            logger.info(f" - Cache hits: {cache_stats['hits']}")
-            logger.info(f" - Cache misses: {cache_stats['misses']}")
-            # Avoid division by zero if no cache operations occurred
-            if cache_stats["hits"] + cache_stats["misses"] > 0:
-                logger.info(f" - Cache hit rate: {cache_stats['hit_rate']*100:.2f}%")
+    # Define callback for streaming mode
+    async def stream_callback(chunk):
+        if "response" in chunk:
+            # Print each chunk without newline to create a continuous stream
+            print(chunk["response"], end="", flush=True)
 
-    except Exception as e:
-        # Catch-all for unexpected errors during setup or execution
-        print(f"Error occurred during program execution: {str(e)}")
-        # Log the error if the logger was successfully initialized
-        if logging.getLogger().hasHandlers():
-            logging.getLogger().error(
-                f"[MAIN]: Error during execution: {str(e)}", exc_info=True
-            )
-        return 1  # Return a non-zero exit code to indicate an error
+    # Send the prompt to the LLM
+    logger.info(f"Sending prompt to Ollama model: {model}")
+    print(f"\nAsking {model}: {question}")
 
-    return 0  # Return 0 for successful execution
+    # Use recommended parameters if not specified in args
+    temperature = (
+        args.temperature
+        if args.temperature is not None
+        else recommended_params["temperature"]
+    )
+    top_p = args.top_p if args.top_p is not None else recommended_params["top_p"]
+    top_k = args.top_k if args.top_k is not None else recommended_params["top_k"]
+    context_size = (
+        args.context_size
+        if args.context_size is not None
+        else recommended_params["context_size"]
+    )
+    max_tokens = (
+        args.max_tokens
+        if args.max_tokens is not None
+        else recommended_params["max_tokens"]
+    )
+
+    # Log the generation parameters if in debug mode
+    if args.debug:
+        logger.debug(
+            f"Generation parameters: temperature={temperature}, top_p={top_p}, top_k={top_k}"
+        )
+        logger.debug(
+            f"Context size: {context_size}, Max tokens: {max_tokens if max_tokens else 'Not limited'}"
+        )
+        print(
+            f"Using parameters: temperature={temperature:.2f}, top_p={top_p:.2f}, top_k={top_k}"
+        )
+        print(
+            f"Context size: {context_size}, Max tokens: {max_tokens if max_tokens else 'Not limited'}"
+        )
+
+    callback = stream_callback if args.stream else None
+    response = await generate_with_ollama(
+        prompt=full_prompt,
+        model=model,
+        base_url=args.ollama_url,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        context_size=context_size,
+        max_tokens=max_tokens,
+        stream=args.stream,
+        stream_callback=callback,
+        timeout=args.timeout,
+        logger=logger,
+    )
+
+    # Print the response if not streaming
+    if not args.stream:
+        if "response" in response:
+            print("\nResponse:")
+            print("-" * 40)
+            print(response["response"])
+            print("-" * 40)
+        elif "error" in response:
+            print(f"\nError: {response['error']}")
+            logger.error(f"Ollama API error: {response['error']}")
+            return
+    else:
+        # Print a newline and divider after streaming completes
+        print("\n" + "-" * 40)
+
+    logger.info("Baidu-Ollama integration completed successfully")
+    return True
 
 
 if __name__ == "__main__":
-    # Set the event loop policy for Windows environments
+    # Debug output at startup
+    print("Starting main.py...")
+
+    # Set event loop policy for Windows
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
     try:
-        # Run the main asynchronous function
-        exit_code = asyncio.run(main())
-        sys.exit(exit_code)  # Propagate the exit code
+        print("Calling asyncio.run(main())...")
+        asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nProgram interrupted by user")
-        sys.exit(1)  # Indicate interruption
+        print("\nOperation interrupted by user.")
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        import traceback
+
+        traceback.print_exc()

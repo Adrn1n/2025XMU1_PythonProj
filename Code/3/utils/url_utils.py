@@ -186,10 +186,23 @@ async def fetch_real_url(
         redirect_count = 0
         resolved_url = current_url  # Start with the (potentially fixed) original URL
 
+        # Filter out invalid proxies that might be comments or empty lines
+        valid_proxies = []
+        if proxy_list:
+            valid_proxies = [
+                p
+                for p in proxy_list
+                if p and not p.startswith("#") and p.startswith(("http://", "https://"))
+            ]
+            if logger and len(valid_proxies) != len(proxy_list):
+                logger.warning(
+                    f"[URL_UTILS]: Filtered out {len(proxy_list) - len(valid_proxies)} invalid proxies"
+                )
+
         while redirect_count < max_redirects:
             # Retry loop for the current step in the redirect chain
             for attempt in range(retries + 1):
-                proxy = random.choice(proxy_list) if proxy_list else None
+                proxy = random.choice(valid_proxies) if valid_proxies else None
                 try:
                     if logger:
                         log_msg = f"[URL_UTILS]: Resolving (R:{redirect_count+1}, A:{attempt+1}): {resolved_url}"
@@ -341,6 +354,19 @@ async def batch_fetch_real_urls(
     if "Cookie" in request_headers:
         del request_headers["Cookie"]
 
+    # Filter out invalid proxies that might be comments or empty lines
+    valid_proxies = []
+    if proxy_list:
+        valid_proxies = [
+            p
+            for p in proxy_list
+            if p and not p.startswith("#") and p.startswith(("http://", "https://"))
+        ]
+        if logger and len(valid_proxies) != len(proxy_list):
+            logger.warning(
+                f"[URL_UTILS]: Batch fetch - filtered out {len(proxy_list) - len(valid_proxies)} invalid proxies"
+            )
+
     all_results = []
     num_batches = (len(urls) + batch_size - 1) // batch_size
 
@@ -358,7 +384,7 @@ async def batch_fetch_real_urls(
                 session=session,
                 org_link=url,
                 headers=request_headers,
-                proxy_list=proxy_list,
+                proxy_list=valid_proxies,
                 base=base,
                 max_semaphore=max_semaphore,  # Pass the shared semaphore
                 timeout=timeout,
