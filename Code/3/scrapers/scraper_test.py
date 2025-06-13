@@ -224,19 +224,22 @@ async def run_search(
     """Execute the search operation using the scraper instance."""
     try:
         logger.info(f"Starting search for '{query}', pages: {pages}")
+
+        # Use the scrape method
         results = await scraper.scrape(
             query=query,
-            num_pages=pages,
-            cache_to_file=use_cache,
+            pages=pages,
             cache_file=cache_file,
+            use_cache=use_cache,
         )
+
         logger.info(f"Search completed, retrieved {len(results)} results")
         return results
     except KeyboardInterrupt:
         logger.warning("Search interrupted by user")
         return []
-    except Exception as e:
-        logger.error(f"Error occurred during search: {str(e)}")
+    except Exception as search_error:
+        logger.error(f"Error occurred during search: {str(search_error)}")
         return []
 
 
@@ -389,16 +392,17 @@ async def main():
                 use_cache=not args.no_cache,
                 logger=logger,
             )
-        except aiohttp.ClientError as e:
-            logger.error(f"Network request error: {e}")
+        except aiohttp.ClientError as client_error:
+            logger.error(f"Network request error: {client_error}")
             # Attempt to recover partial results from cache if available
             if not args.no_cache and cache_file and cache_file.exists():
                 logger.warning("Attempting to load partial results from cache...")
                 # This would be implemented if needed
             results = []
-        except Exception as e:
+        except Exception as request_error:
             logger.error(
-                f"Unknown error occurred during search: {str(e)}", exc_info=True
+                f"Unknown error occurred during search: {str(request_error)}",
+                exc_info=True,
             )
             results = []
 
@@ -484,20 +488,25 @@ async def main():
                 )
                 print(f"Cache hits: {cache_stats.get('hits', 0)}")
                 print(f"Cache misses: {cache_stats.get('misses', 0)}")
-                if total_ops > 0:
-                    print(f"Cache hit rate: {hit_rate:.2f}%")
+                # Calculate total operations and hit rate for debug output
+                debug_total_ops = cache_stats.get("hits", 0) + cache_stats.get(
+                    "misses", 0
+                )
+                if debug_total_ops > 0:
+                    debug_hit_rate = cache_stats.get("hits", 0) / debug_total_ops * 100
+                    print(f"Cache hit rate: {debug_hit_rate:.2f}%")
 
         logger.info("Baidu scraper test completed successfully")
         print("\nTest completed successfully!")
         return 0
 
-    except Exception as e:
+    except Exception as main_error:
         # Catch-all for unexpected errors during setup or execution
-        print(f"Error occurred during program execution: {str(e)}")
+        print(f"Error occurred during program execution: {str(main_error)}")
         # Log the error if the logger was successfully initialized
         if logging.getLogger().hasHandlers():
             logging.getLogger().error(
-                f"Error during execution: {str(e)}", exc_info=True
+                f"Error during execution: {str(main_error)}", exc_info=True
             )
         return 1  # Return a non-zero exit code to indicate an error
 
@@ -513,8 +522,8 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\nOperation interrupted by user.")
         sys.exit(1)
-    except Exception as e:
-        print(f"Error: {str(e)}")
+    except Exception as final_error:
+        print(f"Error: {str(final_error)}")
         import traceback
 
         traceback.print_exc()

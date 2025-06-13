@@ -35,7 +35,21 @@ class URLCache:
         self.hits = 0
         self.misses = 0
         self.operations_count = 0  # Counter to trigger periodic cleanup
-        self.logger = logging.getLogger("URLCache")  # Logger for cache operations
+
+        # Setup module-specific logger (avoid circular import during class initialization)
+        self.logger = logging.getLogger("URLCache")
+
+        # Try to upgrade to module-specific logger after initialization
+        self._upgrade_logger()
+
+    def _upgrade_logger(self):
+        """Upgrade to module-specific logger if available."""
+        try:
+            from config import get_module_logger
+
+            self.logger = get_module_logger("URLCache")
+        except ImportError:
+            pass  # Keep the default logger
 
     def stats(self) -> Dict[str, Any]:
         """Return current statistics about the cache."""

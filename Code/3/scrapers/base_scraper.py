@@ -7,7 +7,7 @@ import random
 import time
 
 from utils.cache import URLCache
-from utils.logging_utils import setup_logger
+from utils.logging_utils import setup_logger, setup_module_logger
 
 
 class BaseScraper:
@@ -88,12 +88,25 @@ class BaseScraper:
 
         # Set up logging if enabled
         if enable_logging:
-            self.logger = setup_logger(
-                self.__class__.__name__,  # Use the class name as the logger name
-                log_level,
-                log_file,
-                log_to_console,
-            )
+            # Try to get config files for module-specific logging
+            try:
+                from config import files
+
+                self.logger = setup_module_logger(
+                    self.__class__.__name__,  # Use the class name as the logger name
+                    log_level,
+                    files,
+                    log_to_console,
+                    propagate=False,  # Prevent cross-contamination between modules
+                )
+            except ImportError:
+                # Fallback to standard setup if config is not available
+                self.logger = setup_logger(
+                    self.__class__.__name__,
+                    log_level,
+                    log_file,
+                    log_to_console,
+                )
             self.logger.info(f"Initializing {self.__class__.__name__}")
 
     def get_stats(self) -> Dict[str, Any]:

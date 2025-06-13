@@ -554,93 +554,133 @@ class BaiduScraper(BaseScraper):
     async def scrape(
         self,
         query: str,
-        num_pages: int = 1,
-        cache_to_file: bool = True,
+        pages: int = 1,
+        filter_ads: bool = None,
+        max_concurrent_pages: int = None,
         cache_file: Optional[Path] = None,
+        use_cache: bool = True,
+        clear_cache: bool = False,
     ) -> List[Dict[str, Any]]:
         """
-        Main method to scrape multiple pages of Baidu search results for a given query.
+        Main method to search Baidu and scrape multiple pages of search results for a given query.
         Handles concurrent page fetching, result parsing, URL resolution, and deduplication.
-        """
-        start_time = time.time()
-        if self.logger:
-            self.logger.info(
-                f"[BAIDU]: Scraping started for query: '{query}', pages: {num_pages}, concurrent pages: {self.max_concurrent_pages}"
-            )
-        all_results = []
 
-        # Use a single aiohttp session for all requests in this scrape operation
-        async with aiohttp.ClientSession() as session:
-            # Process pages in batches based on the max_concurrent_pages setting
-            for i in range(0, num_pages, self.max_concurrent_pages):
-                # Determine the range of pages for the current batch
-                batch_pages = range(i, min(i + self.max_concurrent_pages, num_pages))
-                if self.logger:
-                    self.logger.info(
-                        f"Processing page batch: {batch_pages.start + 1} to {batch_pages.stop}"
+        Args:
+            query: Search query string
+            pages: Number of pages to scrape
+            filter_ads: Whether to filter advertisements (uses instance setting if None)
+            max_concurrent_pages: Override for concurrent pages limit (uses instance setting if None)
+            cache_file: Cache file path for URL caching
+            use_cache: Whether to use URL caching
+            clear_cache: Whether to clear existing cache before starting
+
+        Returns:
+            List of search result dictionaries
+        """
+        # Store original settings for restoration
+        original_filter_ads = self.filter_ads
+        original_max_concurrent_pages = self.max_concurrent_pages
+
+        # Apply temporary settings if provided
+        if filter_ads is not None:
+            self.filter_ads = filter_ads
+        if max_concurrent_pages is not None:
+            self.max_concurrent_pages = max_concurrent_pages
+
+        # Clear cache if requested
+        if clear_cache and hasattr(self, "url_cache"):
+            self.url_cache.clear()
+            if self.logger:
+                self.logger.info("URL cache cleared")
+
+        try:
+            # Main scraping logic starts here
+            start_time = time.time()
+            if self.logger:
+                self.logger.info(
+                    f"[BAIDU]: Scraping started for query: '{query}', pages: {pages}, concurrent pages: {self.max_concurrent_pages}"
+                )
+
+            all_results = []
+
+            # Use a single aiohttp session for all requests in this scrape operation
+            async with aiohttp.ClientSession() as session:
+                # Process pages in batches based on the max_concurrent_pages setting
+                for i in range(0, pages, self.max_concurrent_pages):
+                    # Determine the range of pages for the current batch
+                    batch_pages = range(i, min(i + self.max_concurrent_pages, pages))
+                    if self.logger:
+                        self.logger.info(
+                            f"Processing page batch: {batch_pages.start + 1} to {batch_pages.stop}"
+                        )
+
+                    # Create tasks for scraping each page in the current batch concurrently
+                    tasks = [
+                        self.scrape_single_page(session, query, page)
+                        for page in batch_pages
+                    ]
+                    # Run tasks concurrently and gather results
+                    page_batch_results = await asyncio.gather(
+                        *tasks,
+                        return_exceptions=True,  # Capture exceptions instead of raising them immediately
                     )
 
-                # Create tasks for scraping each page in the current batch concurrently
-                tasks = [
-                    self.scrape_single_page(session, query, page)
-                    for page in batch_pages
-                ]
-                # Run tasks concurrently and gather results
-                page_batch_results = await asyncio.gather(
-                    *tasks,
-                    return_exceptions=True,  # Capture exceptions instead of raising them immediately
-                )
+                    # Process results from the batch
+                    for result in page_batch_results:
+                        if isinstance(result, list):
+                            # Extend the main list with successfully parsed results
+                            all_results.extend(result)
+                        elif isinstance(result, Exception):
+                            # Log errors that occurred during scraping of individual pages
+                            if self.logger:
+                                self.logger.error(
+                                    f"Error during page scraping batch: {result}"
+                                )
 
-                # Process results from the batch
-                for result in page_batch_results:
-                    if isinstance(result, list):
-                        # Extend the main list with successfully parsed results
-                        all_results.extend(result)
-                    elif isinstance(result, Exception):
-                        # Log errors that occurred during scraping of individual pages
+                    # Introduce a delay between batches if more pages are remaining
+                    if batch_pages.stop < pages:
+                        delay = random.uniform(self.min_sleep, self.max_sleep)
                         if self.logger:
-                            self.logger.error(
-                                f"Error during page scraping batch: {result}"
+                            self.logger.debug(
+                                f"Sleeping for {delay:.2f} seconds between page batches"
                             )
+                        await asyncio.sleep(delay)
 
-                # Introduce a delay between batches if more pages are remaining
-                if batch_pages.stop < num_pages:
-                    delay = random.uniform(self.min_sleep, self.max_sleep)
-                    if self.logger:
-                        self.logger.debug(
-                            f"Waiting {delay:.2f}s before scraping next batch..."
-                        )
-                    await asyncio.sleep(delay)
+                # Perform initial deduplication on raw results
+                if self.logger:
+                    self.logger.info(
+                        f"[BAIDU]: Performing initial deduplication on {len(all_results)} raw results..."
+                    )
+                all_results = self.initial_deduplicate_results(all_results)
 
-            # --- Post-Scraping Processing ---
-            if self.logger:
-                self.logger.info(
-                    f"[BAIDU]: Performing initial deduplication on {len(all_results)} raw results..."
-                )
-            # Deduplicate based on raw URLs first to potentially reduce resolution work
-            deduplicated_results = self.initial_deduplicate_results(all_results)
+                # Resolve real URLs for all results after deduplication
+                if self.logger:
+                    self.logger.info(
+                        f"[BAIDU]: Resolving real URLs for {len(all_results)} results after initial deduplication..."
+                    )
+                all_results = await self.process_real_urls(session, all_results)
 
-            if self.logger:
-                self.logger.info(
-                    f"[BAIDU]: Resolving real URLs for {len(deduplicated_results)} results after initial deduplication..."
-                )
-            # Resolve redirect URLs to get final target URLs
-            final_results = await self.process_real_urls(session, deduplicated_results)
+            # Perform final deduplication after URL resolution
+            final_results = self.final_deduplicate_results(all_results)
 
-        # Save the URL cache to file if enabled
-        if cache_to_file and cache_file:
-            if self.logger:
-                self.logger.info(f"[BAIDU]: Saving URL cache to file: {cache_file}")
-            self.url_cache.save_to_file(cache_file)
-        else:
-            if self.logger:
+            # Save the URL cache to file if enabled
+            if use_cache and cache_file:
+                if self.logger:
+                    self.logger.info(f"[BAIDU]: Saving URL cache to file: {cache_file}")
+                self.url_cache.save_to_file(cache_file)
+            elif self.logger:
                 self.logger.debug(
-                    f"[BAIDU]: Skipping URL cache save, cache_to_file={cache_to_file}, cache_file={cache_file}"
+                    f"[BAIDU]: Skipping URL cache save, use_cache={use_cache}, cache_file={cache_file}"
                 )
 
-        elapsed = time.time() - start_time
-        if self.logger:
-            self.logger.info(
-                f"[BAIDU]: Search completed for '{query}'. Retrieved {len(final_results)} final results. Elapsed time: {elapsed:.2f}s"
-            )
-        return final_results
+            elapsed = time.time() - start_time
+            if self.logger:
+                self.logger.info(
+                    f"[BAIDU]: Search completed for '{query}'. Retrieved {len(final_results)} final results. Elapsed time: {elapsed:.2f}s"
+                )
+            return final_results
+
+        finally:
+            # Restore original settings
+            self.filter_ads = original_filter_ads
+            self.max_concurrent_pages = original_max_concurrent_pages

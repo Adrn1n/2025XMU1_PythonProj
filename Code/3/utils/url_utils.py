@@ -6,6 +6,38 @@ import logging
 import random
 
 
+def _filter_valid_proxies(
+    proxy_list: List[str], logger: Optional[logging.Logger] = None, context: str = ""
+) -> List[str]:
+    """
+    Filter out invalid proxies that might be comments or empty lines.
+
+    Args:
+        proxy_list: List of proxy URLs to filter.
+        logger: Optional logger instance.
+        context: Optional context string for logging (e.g., "Batch fetch").
+
+    Returns:
+        List of valid proxy URLs.
+    """
+    if not proxy_list:
+        return []
+
+    valid_proxies = [
+        p
+        for p in proxy_list
+        if p and not p.startswith("#") and p.startswith(("http://", "https://"))
+    ]
+
+    if logger and len(valid_proxies) != len(proxy_list):
+        context_prefix = f"{context} - " if context else ""
+        logger.warning(
+            f"[URL_UTILS]: {context_prefix}Filtered out {len(proxy_list) - len(valid_proxies)} invalid proxies"
+        )
+
+    return valid_proxies
+
+
 def is_valid_url(url: str) -> bool:
     """Check if a string represents a valid absolute URL (with scheme and netloc)."""
     if not url:
@@ -187,17 +219,7 @@ async def fetch_real_url(
         resolved_url = current_url  # Start with the (potentially fixed) original URL
 
         # Filter out invalid proxies that might be comments or empty lines
-        valid_proxies = []
-        if proxy_list:
-            valid_proxies = [
-                p
-                for p in proxy_list
-                if p and not p.startswith("#") and p.startswith(("http://", "https://"))
-            ]
-            if logger and len(valid_proxies) != len(proxy_list):
-                logger.warning(
-                    f"[URL_UTILS]: Filtered out {len(proxy_list) - len(valid_proxies)} invalid proxies"
-                )
+        valid_proxies = _filter_valid_proxies(proxy_list, logger)
 
         while redirect_count < max_redirects:
             # Retry loop for the current step in the redirect chain
@@ -355,17 +377,7 @@ async def batch_fetch_real_urls(
         del request_headers["Cookie"]
 
     # Filter out invalid proxies that might be comments or empty lines
-    valid_proxies = []
-    if proxy_list:
-        valid_proxies = [
-            p
-            for p in proxy_list
-            if p and not p.startswith("#") and p.startswith(("http://", "https://"))
-        ]
-        if logger and len(valid_proxies) != len(proxy_list):
-            logger.warning(
-                f"[URL_UTILS]: Batch fetch - filtered out {len(proxy_list) - len(valid_proxies)} invalid proxies"
-            )
+    valid_proxies = _filter_valid_proxies(proxy_list, logger, context="Batch fetch")
 
     all_results = []
     num_batches = (len(urls) + batch_size - 1) // batch_size

@@ -4,12 +4,10 @@ This module provides a consistent interface for Ollama model operations.
 """
 
 import json
-import time
 import random
 import logging
 import aiohttp
-from typing import Any, Dict, List, Optional, Union, Callable
-from pathlib import Path
+from typing import Any, Dict, List, Optional, Callable
 
 
 async def list_ollama_models(
@@ -79,6 +77,7 @@ def interactive_model_selection(
     for i, model in enumerate(models, 1):
         print(f"{i}. {model}")
 
+    selected_model = None
     while True:
         try:
             choice = input("\nSelect a model (number or name): ").strip()
@@ -100,7 +99,7 @@ def interactive_model_selection(
         except Exception as e:
             print(f"Error: {str(e)}")
 
-    if logger:
+    if logger and selected_model:
         logger.info(f"Selected model: {selected_model}")
     return selected_model
 
