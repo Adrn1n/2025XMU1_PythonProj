@@ -19,23 +19,22 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Import with simple fallbacks
 try:
-    from config import API_CONFIG, OLLAMA_CONFIG, get_logger
+    from config import API_CONFIG, OLLAMA_CONFIG, get_module_logger
     from utils.api_core import get_api_key_manager
     from utils.ollama_utils import check_ollama_status
     from utils.api_services import get_models_handler, get_chat_handler
 
-    logger = get_logger()
+    logger = get_module_logger(__name__)
     api_key_manager = get_api_key_manager()
     models_handler = get_models_handler()
     chat_handler = get_chat_handler()
 
 except ImportError as e:
     import logging
-    
+
     # Define fallback functions
-    def get_fallback_logger() -> logging.Logger:
-        # 使用简单的logger作为回退
-        return logging.getLogger("api.openai")
+    def get_module_logger(name) -> logging.Logger:
+        return logging.getLogger(name)
 
     def get_api_key_manager() -> Optional[Any]:
         return None
@@ -46,7 +45,7 @@ except ImportError as e:
     def get_chat_handler() -> Optional[Any]:
         return None
 
-    logger = get_fallback_logger()
+    logger = get_module_logger(__name__)
     logger.error(f"Import failed: {e}")
     API_CONFIG = {"auth_required": False}
     OLLAMA_CONFIG = {"base_url": "http://localhost:11434"}

@@ -8,14 +8,14 @@ import random
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from utils.config_manager import (
     OptimizedConfigManager as ConfigManager,
     DEFAULT_CONFIG_TEMPLATES,
 )
 
-logger = None  # 将在模块末尾初始化
+logger = logging.getLogger(__name__)
 
 
 class OptimizedProjectConfig:
@@ -256,96 +256,34 @@ API_CONFIG = _config.get_raw_config("api")
 config_manager = _config.config_manager
 
 
-# ============================================================================
-# 简化的日志函数 - 无需传递字符串参数
-# ============================================================================
+# Helper function to get logger with appropriate log file
+def get_module_logger(
+    module_name: str, log_level: int = logging.INFO, log_to_console: bool = True
+) -> logging.Logger:
+    """Get a logger configured for the specific module with appropriate log file."""
+    from utils.logging_utils import setup_module_logger
 
-def get_logger(log_level: int = logging.INFO, log_to_console: bool = True) -> logging.Logger:
-    """
-    自动获取适合当前模块的日志器（无需传递模块名）。
-    
-    Args:
-        log_level: 日志级别，默认INFO
-        log_to_console: 是否输出到控制台，默认True
-    
-    Returns:
-        配置好的Logger实例
-    
-    Usage:
-        from config import get_logger
-        logger = get_logger()
-        logger.info("Log message")
-    """
-    from utils.logging_utils import get_logger as _get_logger
-    return _get_logger(log_level, log_to_console)
+    return setup_module_logger(
+        name=module_name,
+        log_level=log_level,
+        config_files=module_log_files,  # Use simplified mapping
+        log_to_console=log_to_console,
+    )
 
 
-def get_class_logger(cls_instance: object) -> logging.Logger:
-    """
-    为类实例获取日志器，自动使用类名。
-    
-    Args:
-        cls_instance: 类实例（通常传入self）
-    
-    Returns:
-        配置好的Logger实例
-    
-    Usage:
-        class MyClass:
-            def __init__(self):
-                self.logger = get_class_logger(self)
-    """
-    from utils.logging_utils import get_class_logger as _get_class_logger
-    return _get_class_logger(cls_instance)
+# Fix any existing loggers that might be misconfigured
+def fix_existing_loggers():
+    """Fix existing loggers to use correct module-specific log files."""
+    try:
+        from utils.logging_utils import fix_existing_loggers as _fix_loggers
+
+        _fix_loggers()
+    except ImportError:
+        pass
 
 
-def get_current_logger() -> logging.Logger:
-    """
-    获取当前模块的日志器实例
-    
-    Returns:
-        当前模块配置好的Logger实例
-    
-    Usage:
-        logger = get_current_logger()
-        logger.info("Using logger directly")
-    """
-    from utils.logging_utils import get_current_logger as _get_current_logger
-    return _get_current_logger()
-
-
-# ============================================================================
-# 直接日志函数 - 最简化的使用方式
-# ============================================================================
-
-def log_debug(message: str, *args, **kwargs) -> None:
-    """直接记录DEBUG日志，自动检测模块"""
-    from utils.logging_utils import log_debug as _log_debug
-    _log_debug(message, *args, **kwargs)
-
-
-def log_info(message: str, *args, **kwargs) -> None:
-    """直接记录INFO日志，自动检测模块"""
-    from utils.logging_utils import log_info as _log_info
-    _log_info(message, *args, **kwargs)
-
-
-def log_warning(message: str, *args, **kwargs) -> None:
-    """直接记录WARNING日志，自动检测模块"""
-    from utils.logging_utils import log_warning as _log_warning
-    _log_warning(message, *args, **kwargs)
-
-
-def log_error(message: str, *args, **kwargs) -> None:
-    """直接记录ERROR日志，自动检测模块"""
-    from utils.logging_utils import log_error as _log_error
-    _log_error(message, *args, **kwargs)
-
-
-def log_critical(message: str, *args, **kwargs) -> None:
-    """直接记录CRITICAL日志，自动检测模块"""
-    from utils.logging_utils import log_critical as _log_critical
-    _log_critical(message, *args, **kwargs)
+# Call the fix function during module import
+fix_existing_loggers()
 
 
 # Expose unified config access

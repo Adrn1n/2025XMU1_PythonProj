@@ -12,11 +12,11 @@ from typing import Any, Dict
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import OLLAMA_CONFIG, get_logger
+from config import OLLAMA_CONFIG, get_module_logger
 from ollama.ollama_integrate import create_from_args, show_usage_examples
 from utils.logging_utils import get_log_level_from_string
 
-logger = get_logger()
+logger = get_module_logger(__name__)
 
 
 def parse_args() -> argparse.Namespace:

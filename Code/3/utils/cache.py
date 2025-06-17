@@ -44,11 +44,10 @@ class URLCache:
     def _upgrade_logger(self):
         """Upgrade to module-specific logger if available."""
         try:
-            from config import get_logger
-            # 使用自动检测，不传递字符串参数
-            self.logger = get_logger()
+            from config import get_module_logger
+
+            self.logger = get_module_logger("URLCache")
         except ImportError:
-            # 保持原有的简单logger
             pass
 
     def stats(self) -> Dict[str, Any]:

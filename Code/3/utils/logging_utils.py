@@ -1,117 +1,44 @@
 """
-Simplified logging utilities with automatic module detection.
-No need to pass string parameters - everything is auto-detected.
+Logging utilities for project-wide standardized logging configuration.
+Provides centralized logging setup with module-specific log file routing.
 """
 
-import inspect
 import logging
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 import sys
 from pathlib import Path
 
 
-# ============================================================================
-# Internal helper functions
-# ============================================================================
-
-def _get_caller_info():
-    """获取调用者信息，内部工具函数"""
-    frame = inspect.currentframe()
-    try:
-        # 回溯两层：_get_caller_info -> 调用的日志函数 -> 实际调用者
-        caller_frame = frame.f_back.f_back
-        if caller_frame:
-            module_name = caller_frame.f_globals.get('__name__', 'unknown')
-            func_name = caller_frame.f_code.co_name
-            return module_name, func_name
-        return 'unknown', 'unknown'
-    finally:
-        del frame
-
-
-def _get_auto_module_name():
-    """自动获取调用者模块名"""
-    frame = inspect.currentframe()
-    try:
-        caller_frame = frame.f_back.f_back
-        if caller_frame:
-            return caller_frame.f_globals.get('__name__', 'unknown')
-        return 'unknown'
-    finally:
-        del frame
-
-
-def _get_module_log_file(module_name: str) -> Optional[Path]:
-    """
-    根据模块名自动获取对应的日志文件路径
-    
-    Args:
-        module_name: 模块名
-    
-    Returns:
-        对应的日志文件路径或None
-    """
-    try:
-        from config import module_log_files
-        config_files = module_log_files
-    except ImportError:
-        return None
-    
-    if not config_files:
-        return None
-
-    # 模块名规范化
-    module_lower = module_name.lower()
-    
-    # 直接匹配
-    module_prefixes = ["api", "scrapers", "ollama", "cache", "config", "utils", "main"]
-    
-    for prefix in module_prefixes:
-        if module_lower == prefix:
-            return config_files.get(prefix)
-    
-    # 前缀匹配
-    for prefix in module_prefixes:
-        if module_lower.startswith(f"{prefix}.") or module_lower.startswith(f"{prefix}_"):
-            return config_files.get(prefix)
-    
-    # 子串匹配
-    prefix_patterns = {
-        "api": ["api", "openai", "start_server"],
-        "scrapers": ["scraper", "baidu"],
-        "ollama": ["ollama"],
-        "cache": ["cache"],
-        "config": ["config"],
-        "utils": ["utils", "file_", "url_", "logging_"],
-        "main": ["main", "__main__"],
-    }
-    
-    for prefix, patterns in prefix_patterns.items():
-        for pattern in patterns:
-            if pattern in module_lower:
-                log_file = config_files.get(prefix)
-                if log_file:
-                    return log_file
-    
-    # 回退到主日志文件
-    return config_files.get("main") or config_files.get("log_file")
-
-
-def _setup_logger_internal(
+def setup_logger(
     name: str,
     log_level: int = logging.INFO,
     log_file: Optional[Union[str, Path]] = None,
     log_to_console: bool = True,
     log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     date_format: str = "%Y-%m-%d %H:%M:%S",
-    propagate: bool = True,
+    propagate: bool = True,  # Changed default to True to allow log propagation
 ) -> logging.Logger:
     """
-    内部日志器配置函数
+    Configure and return a logger instance with handlers and formatting.
+    Prevents duplicate handler creation for existing loggers.
+
+    Args:
+        name: Logger name identifier
+        log_level: Minimum logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        log_file: Optional path to log file
+        log_to_console: Whether to output logs to console
+        log_format: Format string for log messages
+        date_format: Format string for timestamps
+        propagate: Whether to propagate messages to parent loggers
+
+    Returns:
+        Configured Logger instance
     """
     logger = logging.getLogger(name)
 
     if logger.handlers:
+        if logger.name == name:
+            logger.debug(f"Logger '{name}' already configured, reusing existing")
         return logger
 
     logger.setLevel(log_level)
@@ -136,244 +63,34 @@ def _setup_logger_internal(
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
             logger.info(f"Logging to file: {log_file}")
+        except (PermissionError, OSError) as e:
+            logger.error(f"Failed to setup file handler for {log_file}: {e}")
         except Exception as e:
-            if log_to_console:
-                logger.error(f"Failed to setup file handler for {log_file}: {e}")
+            logger.error(f"Unexpected error setting up file handler: {e}")
+            if not log_to_console:
+                temp_handler = logging.StreamHandler(sys.stderr)
+                temp_handler.setFormatter(formatter)
+                logger.addHandler(temp_handler)
+                logger.error(f"File handler setup failed for {log_file}: {e}")
+                logger.removeHandler(temp_handler)
 
     return logger
 
 
-# ============================================================================
-# 全局日志器缓存
-# ============================================================================
-
-_logger_cache = {}
-
-
-# ============================================================================
-# 简化的日志函数 - 无需传递任何字符串参数
-# ============================================================================
-
-def get_logger(
-    log_level: int = logging.INFO,
-    log_to_console: bool = True
-) -> logging.Logger:
-    """
-    自动检测调用模块并获取适当的日志器。
-    无需传递任何字符串参数，自动从调用栈中检测。
-    
-    Args:
-        log_level: 日志级别，默认INFO
-        log_to_console: 是否输出到控制台，默认True
-    
-    Returns:
-        配置好的Logger实例
-    
-    Usage:
-        logger = get_logger()
-        logger.info("This is a log message")
-    """
-    module_name = _get_auto_module_name()
-    
-    if module_name not in _logger_cache:
-        log_file = _get_module_log_file(module_name)
-        _logger_cache[module_name] = _setup_logger_internal(
-            name=module_name,
-            log_level=log_level,
-            log_file=log_file,
-            log_to_console=log_to_console,
-        )
-    
-    return _logger_cache[module_name]
-
-
-def get_class_logger(cls_instance: object) -> logging.Logger:
-    """
-    为类实例获取日志器，自动使用类名。
-    
-    Args:
-        cls_instance: 类实例（通常传入self）
-    
-    Returns:
-        配置好的Logger实例
-    
-    Usage:
-        class MyClass:
-            def __init__(self):
-                self.logger = get_class_logger(self)
-    """
-    class_name = cls_instance.__class__.__name__
-    
-    if class_name not in _logger_cache:
-        log_file = _get_module_log_file(class_name)
-        _logger_cache[class_name] = _setup_logger_internal(
-            name=class_name,
-            log_file=log_file,
-        )
-    
-    return _logger_cache[class_name]
-
-
-def get_current_logger() -> logging.Logger:
-    """
-    获取当前模块的日志器实例（用于需要直接访问日志器的场合）
-    
-    Returns:
-        当前模块配置好的Logger实例
-    
-    Usage:
-        logger = get_current_logger()
-        logger.info("Using logger directly")
-    """
-    module_name, _ = _get_caller_info()
-    if module_name not in _logger_cache:
-        _logger_cache[module_name] = get_logger()
-    return _logger_cache[module_name]
-
-
-# ============================================================================
-# 直接日志函数 - 最简化的使用方式
-# ============================================================================
-
-def log_debug(message: str, *args, **kwargs) -> None:
-    """
-    直接记录DEBUG级别日志，自动检测模块并使用合适的日志器
-    
-    Args:
-        message: 日志消息
-        *args: 格式化参数
-        **kwargs: 额外的日志参数
-    
-    Usage:
-        log_debug("Debug message: %s", some_value)
-        log_debug("Simple debug message")
-    """
-    module_name, _ = _get_caller_info()
-    if module_name not in _logger_cache:
-        _logger_cache[module_name] = get_logger()
-    _logger_cache[module_name].debug(message, *args, **kwargs)
-
-
-def log_info(message: str, *args, **kwargs) -> None:
-    """
-    直接记录INFO级别日志，自动检测模块并使用合适的日志器
-    
-    Args:
-        message: 日志消息
-        *args: 格式化参数
-        **kwargs: 额外的日志参数
-    
-    Usage:
-        log_info("Info message: %s", some_value)
-        log_info("Simple info message")
-    """
-    module_name, _ = _get_caller_info()
-    if module_name not in _logger_cache:
-        _logger_cache[module_name] = get_logger()
-    _logger_cache[module_name].info(message, *args, **kwargs)
-
-
-def log_warning(message: str, *args, **kwargs) -> None:
-    """
-    直接记录WARNING级别日志，自动检测模块并使用合适的日志器
-    
-    Args:
-        message: 日志消息
-        *args: 格式化参数
-        **kwargs: 额外的日志参数
-    
-    Usage:
-        log_warning("Warning message: %s", some_value)
-        log_warning("Simple warning message")
-    """
-    module_name, _ = _get_caller_info()
-    if module_name not in _logger_cache:
-        _logger_cache[module_name] = get_logger()
-    _logger_cache[module_name].warning(message, *args, **kwargs)
-
-
-def log_error(message: str, *args, **kwargs) -> None:
-    """
-    直接记录ERROR级别日志，自动检测模块并使用合适的日志器
-    
-    Args:
-        message: 日志消息
-        *args: 格式化参数
-        **kwargs: 额外的日志参数 (支持 exc_info=True)
-    
-    Usage:
-        log_error("Error message: %s", some_value)
-        log_error("Error with exception", exc_info=True)
-    """
-    module_name, _ = _get_caller_info()
-    if module_name not in _logger_cache:
-        _logger_cache[module_name] = get_logger()
-    _logger_cache[module_name].error(message, *args, **kwargs)
-
-
-def log_critical(message: str, *args, **kwargs) -> None:
-    """
-    直接记录CRITICAL级别日志，自动检测模块并使用合适的日志器
-    
-    Args:
-        message: 日志消息
-        *args: 格式化参数
-        **kwargs: 额外的日志参数
-    
-    Usage:
-        log_critical("Critical message: %s", some_value)
-        log_critical("Simple critical message")
-    """
-    module_name, _ = _get_caller_info()
-    if module_name not in _logger_cache:
-        _logger_cache[module_name] = get_logger()
-    _logger_cache[module_name].critical(message, *args, **kwargs)
-
-
-def log(level: int, message: str, *args, **kwargs) -> None:
-    """
-    通用日志函数，支持任意日志级别
-    
-    Args:
-        level: 日志级别 (logging.DEBUG, logging.INFO, 等)
-        message: 日志消息
-        *args: 格式化参数
-        **kwargs: 额外的日志参数
-    
-    Usage:
-        log(logging.INFO, "Info message: %s", some_value)
-        log(logging.ERROR, "Error occurred", exc_info=True)
-    """
-    module_name, _ = _get_caller_info()
-    if module_name not in _logger_cache:
-        _logger_cache[module_name] = get_logger()
-    _logger_cache[module_name].log(level, message, *args, **kwargs)
-
-
-# ============================================================================
-# 实用工具函数
-# ============================================================================
-
-def clear_logger_cache() -> None:
-    """清除日志器缓存（主要用于测试或重新配置）"""
-    global _logger_cache
-    _logger_cache.clear()
-
-
-def get_log_levels() -> list:
-    """返回可用的日志级别列表"""
+def get_log_levels() -> List[str]:
+    """Return list of standard log level names."""
     return ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
 def get_log_level_from_string(level_name: str) -> int:
     """
-    从字符串获取日志级别常量
-    
+    Convert log level name to logging constant.
+
     Args:
-        level_name: 日志级别名称（不区分大小写）
-    
+        level_name: Log level name (case-insensitive)
+
     Returns:
-        日志级别常量，无效时返回INFO级别
+        Logging level constant, defaults to INFO if invalid
     """
     level_map = {
         "debug": logging.DEBUG,
@@ -385,33 +102,146 @@ def get_log_level_from_string(level_name: str) -> int:
     return level_map.get(level_name.lower(), logging.INFO)
 
 
-# ============================================================================
-# 向后兼容的函数（已弃用，建议使用新的简化函数）
-# ============================================================================
+def get_module_log_file(
+    module_name: str, config_files: Optional[Dict[str, Path]] = None
+) -> Optional[Path]:
+    """
+    Get appropriate log file path for a module using direct mapping.
 
-def setup_logger(*args, **kwargs):
+    This function maps module names to log files using a hierarchical approach:
+    1. Direct exact match (e.g., "api" -> "api")
+    2. Prefix match (e.g., "api.openai" -> "api")
+    3. Suffix-based class mapping (e.g., "BaiduScraper" -> "scrapers")
+    4. Fallback to main log file
+
+    Args:
+        module_name: Module name or class name
+        config_files: Dictionary of log file paths (keys should be module prefixes)
+
+    Returns:
+        Path to appropriate log file or None if not found
     """
-    已弃用：请使用 get_logger() 替代
-    保留此函数仅为向后兼容
+    if not config_files:
+        return None
+
+    # Module prefix mappings - maps module patterns to config_files keys
+    module_prefixes = [
+        "api",  # Matches api.*, api_*, openai, start_server, etc.
+        "scrapers",  # Matches scrapers.*, *scraper*, etc.
+        "ollama",  # MatchesG:ollama.*, ollama_*, etc.
+        "cache",  # Matches cache.*, *Cache, etc.
+        "config",  # Matches config.*, config_*, etc.
+        "utils",  # Matches utils.*, *_utils, logging_utils, etc.
+        "main",  # Matches main, __main__
+    ]
+
+    # Normalize module name for matching
+    module_lower = module_name.lower()
+
+    # Direct exact match (highest priority)
+    for prefix in module_prefixes:
+        if module_lower == prefix:
+            return config_files.get(prefix)
+
+    # Prefix-based matching (e.g., "api.openai" -> "api")
+    for prefix in module_prefixes:
+        if module_lower.startswith(f"{prefix}.") or module_lower.startswith(
+            f"{prefix}_"
+        ):
+            return config_files.get(prefix)
+
+    # Substring-based matching for components
+    prefix_patterns = {
+        "api": ["api", "openai", "start_server"],
+        "scrapers": ["scraper", "baidu"],
+        "ollama": ["ollama"],
+        "cache": ["cache"],
+        "config": ["config"],
+        "utils": ["utils", "file_", "url_", "logging_"],
+        "main": ["main", "__main__"],
+    }
+
+    for prefix, patterns in prefix_patterns.items():
+        for pattern in patterns:
+            if pattern in module_lower:
+                log_file = config_files.get(prefix)
+                if log_file:
+                    return log_file
+
+    # Fallback to main or default log file
+    return config_files.get("main") or config_files.get("log_file")
+
+
+def setup_module_logger(
+    name: str,
+    log_level: int = logging.INFO,
+    config_files: Optional[Dict[str, Path]] = None,
+    log_to_console: bool = True,
+    log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    date_format: str = "%Y-%m-%d %H:%M:%S",
+    propagate: bool = False,
+) -> logging.Logger:
     """
-    import warnings
-    warnings.warn(
-        "setup_logger() is deprecated. Use get_logger() instead.",
-        DeprecationWarning,
-        stacklevel=2
+    Setup logger with automatic log file selection based on module name.
+
+    Args:
+        name: Logger name (usually module name)
+        log_level: Minimum logging level
+        config_files: Dictionary of available log file paths
+        log_to_console: Whether to output to console
+        log_format: Format string for log messages
+        date_format: Format string for timestamps
+        propagate: Whether to propagate to parent loggers
+
+    Returns:
+        Configured Logger instance
+    """
+    log_file = get_module_log_file(name, config_files)
+    return setup_logger(
+        name=name,
+        log_level=log_level,
+        log_file=log_file,
+        log_to_console=log_to_console,
+        log_format=log_format,
+        date_format=date_format,
+        propagate=propagate,
     )
-    return _setup_logger_internal(*args, **kwargs)
 
 
-def get_auto_logger(*args, **kwargs):
+def reset_module_logger(
+    name: str, config_files: Optional[Dict[str, Path]] = None
+) -> logging.Logger:
     """
-    已弃用：请使用 get_logger() 替代  
-    保留此函数仅为向后兼容
+    Reset and reconfigure existing logger with correct log file.
+
+    Args:
+        name: Logger name to reset
+        config_files: Dictionary of available log file paths
+
+    Returns:
+        Reconfigured Logger instance
     """
-    import warnings
-    warnings.warn(
-        "get_auto_logger() is deprecated. Use get_logger() instead.",
-        DeprecationWarning,
-        stacklevel=2
-    )
-    return get_logger(*args, **kwargs)
+    logger = logging.getLogger(name)
+
+    # Remove existing handlers
+    for handler in logger.handlers[:]:
+        handler.close()
+        logger.removeHandler(handler)
+
+    logger.handlers.clear()
+    return setup_module_logger(name, config_files=config_files)
+
+
+def fix_existing_loggers():
+    """Fix existing loggers that may be using incorrect log files."""
+    try:
+        from config import module_log_files
+
+        loggers_to_fix = ["OllamaIntegrate", "BaiduScraper", "BaseScraper", "URLCache"]
+
+        for logger_name in loggers_to_fix:
+            if logger_name in logging.Logger.manager.loggerDict:
+                reset_module_logger(logger_name, module_log_files)
+
+    except ImportError:
+        pass

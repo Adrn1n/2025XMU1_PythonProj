@@ -22,13 +22,13 @@ from config import (
     HEADERS,
     LOG_FILE,
     PROXY_LIST,
-    get_logger,
+    get_module_logger,
 )
 from scrapers.baidu_scraper import BaiduScraper
 from utils.file_utils import save_search_results
 from utils.logging_utils import get_log_level_from_string, setup_logger
 
-logger = get_logger()
+logger = get_module_logger(__name__)
 
 
 def parse_args() -> argparse.Namespace:

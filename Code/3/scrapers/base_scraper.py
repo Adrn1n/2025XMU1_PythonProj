@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from utils.cache import URLCache
-from utils.logging_utils import get_logger
+from utils.logging_utils import setup_logger, setup_module_logger
 
 
 class BaseScraper:
@@ -84,9 +84,23 @@ class BaseScraper:
         }
 
         if enable_logging:
-            from config import get_class_logger
-            # 使用简化的类日志器，自动检测类名，无需传递任何字符串
-            self.logger = get_class_logger(self)
+            try:
+                from config import files
+
+                self.logger = setup_module_logger(
+                    self.__class__.__name__,
+                    log_level,
+                    files,
+                    log_to_console,
+                    propagate=False,
+                )
+            except ImportError:
+                self.logger = setup_logger(
+                    self.__class__.__name__,
+                    log_level,
+                    log_file,
+                    log_to_console,
+                )
             self.logger.info(f"Initializing {self.__class__.__name__}")
 
     def get_stats(self) -> Dict[str, Any]:

@@ -27,12 +27,7 @@ async def list_ollama_models(
         List of model names available on Ollama server
     """
     if logger is None:
-        # 使用简化的导入方式
-        try:
-            from config import get_logger
-            logger = get_logger()
-        except ImportError:
-            logger = logging.getLogger("ollama_utils")
+        logger = logging.getLogger(__name__)
 
     url = f"{base_url}/api/tags"
     logger.debug(f"Fetching models from {url}")
@@ -77,12 +72,7 @@ def interactive_model_selection(
         Selected model name or None if no selection was made
     """
     if logger is None:
-        # 使用简化的导入方式
-        try:
-            from config import get_logger
-            logger = get_logger()
-        except ImportError:
-            logger = logging.getLogger("ollama_utils")
+        logger = logging.getLogger(__name__)
 
     if not models:
         logger.warning("No Ollama models available")

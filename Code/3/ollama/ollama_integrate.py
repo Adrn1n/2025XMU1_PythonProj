@@ -17,7 +17,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import DEFAULT_CONFIG, LOG_FILE, OLLAMA_CONFIG, HEADERS, PROXY_LIST
 from scrapers.baidu_scraper import BaiduScraper
 from utils.file_utils import save_search_results
-from utils.logging_utils import get_log_level_from_string
+from utils.logging_utils import (
+    get_log_level_from_string,
+    setup_logger,
+    setup_module_logger,
+)
 from utils.ollama_utils import (
     check_ollama_status,
     create_full_prompt,
@@ -96,6 +100,7 @@ class ScraperConfig:
 @dataclass
 class OutputConfig:
     """Output and logging configuration."""
+
     output_file: Optional[str] = None
     save_results: bool = False
     debug: bool = False
@@ -143,10 +148,36 @@ class OptimizedOllamaIntegrate:
         self._setup_scraper()
 
     def _setup_logger(self):
-        """Set up logging based on configuration."""
-        from config import get_class_logger
-        # 使用简化的类日志器，自动检测类名，无需传递任何字符串
-        self.logger = get_class_logger(self)
+        """Setup logging configuration."""
+        try:
+            from config import files
+
+            module_name = f"{__name__}.{self.__class__.__name__}"
+            self.logger = setup_module_logger(
+                name=module_name,
+                log_level=get_log_level_from_string(self.output_config.log_level),
+                config_files=files,
+                log_to_console=self.output_config.log_to_console,
+                propagate=False,
+            )
+        except ImportError as e:
+            print(f"Warning: Module-specific logging setup failed: {e}")
+            log_file_path = None
+            if self.output_config.log_to_file:
+                if self.output_config.log_file:
+                    log_file_path = Path(self.output_config.log_file)
+                else:
+                    log_file_path = Path(LOG_FILE)
+                log_file_path.parent.mkdir(parents=True, exist_ok=True)
+                print(f"Setting up log file at: {log_file_path}")
+
+            self.logger = setup_logger(
+                name="OllamaIntegrate",
+                log_level=get_log_level_from_string(self.output_config.log_level),
+                log_file=log_file_path,
+                log_to_console=self.output_config.log_to_console,
+                propagate=True,
+            )
         self.logger.info("OllamaIntegrate initialized")
 
     def _setup_scraper(self):

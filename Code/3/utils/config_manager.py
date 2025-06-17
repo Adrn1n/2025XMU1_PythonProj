@@ -9,8 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
-# 创建一个简单的logger以避免循环导入
-logger = logging.getLogger("config_manager")
+logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_TEMPLATES = {
     "paths": {

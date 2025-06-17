@@ -9,10 +9,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import get_logger
+from config import get_module_logger
 from utils.api_core import get_api_key_manager
 
-logger = get_logger()
+logger = get_module_logger(__name__)
 
 
 def main():
