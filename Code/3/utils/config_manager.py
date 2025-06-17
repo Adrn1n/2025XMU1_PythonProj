@@ -107,6 +107,46 @@ DEFAULT_CONFIG_TEMPLATES = {
         "utils_log_file": "logs/utils.log",
         "api_log_file": "logs/api.log",
     },
+    "module_log_mapping": {
+        # API modules
+        "api": "api_log_file",
+        "api.openai": "api_log_file", 
+        "api.api_keys": "api_log_file",
+        "api.start_server": "api_log_file",
+        
+        # Scraper modules  
+        "scrapers": "scraper_log_file",
+        "scrapers.baidu_scraper": "scraper_log_file",
+        "scrapers.base_scraper": "scraper_log_file", 
+        "scrapers.scraper_test": "scraper_log_file",
+        "BaiduScraper": "scraper_log_file",
+        "BaseScraper": "scraper_log_file",
+        
+        # Ollama modules
+        "ollama": "ollama_log_file",
+        "ollama.ollama_integrate": "ollama_log_file",
+        "OptimizedOllamaIntegrate": "ollama_log_file",
+        "OllamaIntegrate": "ollama_log_file",
+        
+        # Utils modules
+        "utils": "utils_log_file",
+        "utils.cache": "cache_log_file",
+        "utils.config_manager": "config_log_file", 
+        "utils.logging_utils": "utils_log_file",
+        "utils.file_utils": "utils_log_file",
+        "utils.url_utils": "utils_log_file",
+        "utils.ollama_utils": "utils_log_file",
+        "utils.api_core": "utils_log_file",
+        "utils.api_services": "utils_log_file",
+        "URLCache": "cache_log_file",
+        
+        # Main module
+        "main": "main_log_file",
+        "__main__": "main_log_file",
+        
+        # Config module  
+        "config": "config_log_file",
+    },
 }
 
 HEADERS_TEMPLATE = """GET / HTTP/1.1

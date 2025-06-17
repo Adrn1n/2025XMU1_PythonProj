@@ -62,9 +62,6 @@ class OptimizedProjectConfig:
             else:
                 self.files[key] = base_path
 
-        # Create module-specific log file mapping (simplified mapping)
-        self.module_log_files = self._create_module_log_mapping()
-
         # Ensure directories exist (batch operation)
         dirs_to_create = [
             path
@@ -78,19 +75,7 @@ class OptimizedProjectConfig:
             except Exception as e:
                 logger.error(f"Failed to create directory: {path}, error: {e}")
 
-    def _create_module_log_mapping(self) -> Dict[str, Path]:
-        """Create simplified module-to-log-file mapping."""
-        return {
-            # Direct module name mapping (no need for complex mappings)
-            "api": self.files.get("api_log_file"),
-            "scrapers": self.files.get("scraper_log_file"),
-            "ollama": self.files.get("ollama_log_file"),
-            "cache": self.files.get("cache_log_file"),
-            "config": self.files.get("config_log_file"),
-            "utils": self.files.get("utils_log_file"),
-            "main": self.files.get("main_log_file"),
-            "log_file": self.files.get("log_file"),  # fallback
-        }
+
 
     @lru_cache(maxsize=1)
     def _load_external_files(self):
@@ -223,9 +208,6 @@ CONFIG = _config.config
 paths = _config.paths
 files = _config.files
 
-# Export the simplified module log file mapping
-module_log_files = _config.module_log_files
-
 # Export commonly used items
 HEADERS_FILE = files.get("headers_file")
 PROXY_FILE = files.get("proxy_file")
@@ -266,24 +248,9 @@ def get_module_logger(
     return setup_module_logger(
         name=module_name,
         log_level=log_level,
-        config_files=module_log_files,  # Use simplified mapping
+        config_files=files,  # Use files mapping directly
         log_to_console=log_to_console,
     )
-
-
-# Fix any existing loggers that might be misconfigured
-def fix_existing_loggers():
-    """Fix existing loggers to use correct module-specific log files."""
-    try:
-        from utils.logging_utils import fix_existing_loggers as _fix_loggers
-
-        _fix_loggers()
-    except ImportError:
-        pass
-
-
-# Call the fix function during module import
-fix_existing_loggers()
 
 
 # Expose unified config access
