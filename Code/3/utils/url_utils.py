@@ -368,7 +368,12 @@ async def batch_fetch_real_urls(
         List of resolved URLs with order preserved
     """
     if logger is None:
-        logger = logging.getLogger(__name__)
+        # 使用简化的导入方式
+        try:
+            from config import get_logger
+            logger = get_logger()
+        except ImportError:
+            logger = logging.getLogger("url_utils")
 
     logger.debug(f"Starting batch URL resolution for {len(urls)} URLs")
 

@@ -14,9 +14,9 @@ from utils.ollama_utils import (
     generate_with_ollama,
 )
 from utils.api_core import OpenAICompatibilityUtils
-from config import get_module_logger, API_CONFIG, OLLAMA_CONFIG
+from config import get_logger, API_CONFIG, OLLAMA_CONFIG
 
-logger = get_module_logger(__name__)
+logger = get_logger()
 
 # Simple configuration constants
 PERFORMANCE_CONFIG = {

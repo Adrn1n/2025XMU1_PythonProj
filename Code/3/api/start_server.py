@@ -13,10 +13,10 @@ import uvicorn
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import OLLAMA_CONFIG, get_module_logger
+from config import OLLAMA_CONFIG, get_logger
 from utils.ollama_utils import check_ollama_status
 
-logger = get_module_logger(__name__)
+logger = get_logger()
 
 
 async def check_dependencies():

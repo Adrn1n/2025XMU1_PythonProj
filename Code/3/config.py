@@ -8,14 +8,14 @@ import random
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from utils.config_manager import (
     OptimizedConfigManager as ConfigManager,
     DEFAULT_CONFIG_TEMPLATES,
 )
 
-logger = logging.getLogger(__name__)
+logger = None  # 将在模块末尾初始化
 
 
 class OptimizedProjectConfig:
@@ -62,6 +62,9 @@ class OptimizedProjectConfig:
             else:
                 self.files[key] = base_path
 
+        # Create module-specific log file mapping (simplified mapping)
+        self.module_log_files = self._create_module_log_mapping()
+
         # Ensure directories exist (batch operation)
         dirs_to_create = [
             path
@@ -74,6 +77,20 @@ class OptimizedProjectConfig:
                 logger.debug(f"Created directory: {path}")
             except Exception as e:
                 logger.error(f"Failed to create directory: {path}, error: {e}")
+
+    def _create_module_log_mapping(self) -> Dict[str, Path]:
+        """Create simplified module-to-log-file mapping."""
+        return {
+            # Direct module name mapping (no need for complex mappings)
+            "api": self.files.get("api_log_file"),
+            "scrapers": self.files.get("scraper_log_file"),
+            "ollama": self.files.get("ollama_log_file"),
+            "cache": self.files.get("cache_log_file"),
+            "config": self.files.get("config_log_file"),
+            "utils": self.files.get("utils_log_file"),
+            "main": self.files.get("main_log_file"),
+            "log_file": self.files.get("log_file"),  # fallback
+        }
 
     @lru_cache(maxsize=1)
     def _load_external_files(self):
@@ -206,13 +223,16 @@ CONFIG = _config.config
 paths = _config.paths
 files = _config.files
 
+# Export the simplified module log file mapping
+module_log_files = _config.module_log_files
+
 # Export commonly used items
 HEADERS_FILE = files.get("headers_file")
 PROXY_FILE = files.get("proxy_file")
 SEARCH_CACHE_FILE = files.get("search_cache_file")
 LOG_FILE = files.get("log_file")
 
-# Export all log files
+# Export all log files (kept for backward compatibility)
 SCRAPER_LOG_FILE = files.get("scraper_log_file")
 OLLAMA_LOG_FILE = files.get("ollama_log_file")
 CACHE_LOG_FILE = files.get("cache_log_file")
@@ -236,34 +256,96 @@ API_CONFIG = _config.get_raw_config("api")
 config_manager = _config.config_manager
 
 
-# Helper function to get logger with appropriate log file
-def get_module_logger(
-    module_name: str, log_level: int = logging.INFO, log_to_console: bool = True
-) -> logging.Logger:
-    """Get a logger configured for the specific module with appropriate log file."""
-    from utils.logging_utils import setup_module_logger
+# ============================================================================
+# 简化的日志函数 - 无需传递字符串参数
+# ============================================================================
 
-    return setup_module_logger(
-        name=module_name,
-        log_level=log_level,
-        config_files=files,
-        log_to_console=log_to_console,
-    )
-
-
-# Fix any existing loggers that might be misconfigured
-def fix_existing_loggers():
-    """Fix existing loggers to use correct module-specific log files."""
-    try:
-        from utils.logging_utils import fix_existing_loggers as _fix_loggers
-
-        _fix_loggers()
-    except ImportError:
-        pass
+def get_logger(log_level: int = logging.INFO, log_to_console: bool = True) -> logging.Logger:
+    """
+    自动获取适合当前模块的日志器（无需传递模块名）。
+    
+    Args:
+        log_level: 日志级别，默认INFO
+        log_to_console: 是否输出到控制台，默认True
+    
+    Returns:
+        配置好的Logger实例
+    
+    Usage:
+        from config import get_logger
+        logger = get_logger()
+        logger.info("Log message")
+    """
+    from utils.logging_utils import get_logger as _get_logger
+    return _get_logger(log_level, log_to_console)
 
 
-# Call the fix function during module import
-fix_existing_loggers()
+def get_class_logger(cls_instance: object) -> logging.Logger:
+    """
+    为类实例获取日志器，自动使用类名。
+    
+    Args:
+        cls_instance: 类实例（通常传入self）
+    
+    Returns:
+        配置好的Logger实例
+    
+    Usage:
+        class MyClass:
+            def __init__(self):
+                self.logger = get_class_logger(self)
+    """
+    from utils.logging_utils import get_class_logger as _get_class_logger
+    return _get_class_logger(cls_instance)
+
+
+def get_current_logger() -> logging.Logger:
+    """
+    获取当前模块的日志器实例
+    
+    Returns:
+        当前模块配置好的Logger实例
+    
+    Usage:
+        logger = get_current_logger()
+        logger.info("Using logger directly")
+    """
+    from utils.logging_utils import get_current_logger as _get_current_logger
+    return _get_current_logger()
+
+
+# ============================================================================
+# 直接日志函数 - 最简化的使用方式
+# ============================================================================
+
+def log_debug(message: str, *args, **kwargs) -> None:
+    """直接记录DEBUG日志，自动检测模块"""
+    from utils.logging_utils import log_debug as _log_debug
+    _log_debug(message, *args, **kwargs)
+
+
+def log_info(message: str, *args, **kwargs) -> None:
+    """直接记录INFO日志，自动检测模块"""
+    from utils.logging_utils import log_info as _log_info
+    _log_info(message, *args, **kwargs)
+
+
+def log_warning(message: str, *args, **kwargs) -> None:
+    """直接记录WARNING日志，自动检测模块"""
+    from utils.logging_utils import log_warning as _log_warning
+    _log_warning(message, *args, **kwargs)
+
+
+def log_error(message: str, *args, **kwargs) -> None:
+    """直接记录ERROR日志，自动检测模块"""
+    from utils.logging_utils import log_error as _log_error
+    _log_error(message, *args, **kwargs)
+
+
+def log_critical(message: str, *args, **kwargs) -> None:
+    """直接记录CRITICAL日志，自动检测模块"""
+    from utils.logging_utils import log_critical as _log_critical
+    _log_critical(message, *args, **kwargs)
 
 
 # Expose unified config access

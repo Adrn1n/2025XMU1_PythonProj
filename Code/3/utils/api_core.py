@@ -28,9 +28,9 @@ class APIKeyManager:
     def _setup_logger() -> logging.Logger:
         """Setup module-specific logger."""
         try:
-            from config import get_module_logger
-
-            return get_module_logger("api_core")
+            from config import get_logger
+            # 使用自动检测，不传递字符串参数
+            return get_logger()
         except ImportError:
             return logging.getLogger("APIKeyManager")
 
