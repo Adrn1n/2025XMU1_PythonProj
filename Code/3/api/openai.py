@@ -23,50 +23,49 @@ try:
     from utils.api_core import get_api_key_manager
     from utils.ollama_utils import check_ollama_status
     from utils.api_services import get_models_handler, get_chat_handler
-    
+
     logger = get_module_logger(__name__)
     api_key_manager = get_api_key_manager()
     models_handler = get_models_handler()
     chat_handler = get_chat_handler()
-    
+
 except ImportError as e:
     import logging
-    
+
     # Define fallback functions
     def get_module_logger(name) -> logging.Logger:
         return logging.getLogger(name)
-    
+
     def get_api_key_manager() -> Optional[Any]:
         return None
-        
+
     def get_models_handler() -> Optional[Any]:
         return None
-        
+
     def get_chat_handler() -> Optional[Any]:
         return None
-    
+
     logger = get_module_logger(__name__)
     logger.error(f"Import failed: {e}")
-    # Fallback configs
     API_CONFIG = {"auth_required": False}
     OLLAMA_CONFIG = {"base_url": "http://localhost:11434"}
     api_key_manager = get_api_key_manager()
     models_handler = get_models_handler()
     chat_handler = get_chat_handler()
-    
+
     async def check_ollama_status(url, **kwargs):
+        """Fallback function for checking Ollama status when imports fail."""
         _ = url, kwargs  # Suppress unused parameter warnings
         return False
 
-# Configuration
+
 OLLAMA_BASE_URL = OLLAMA_CONFIG.get("base_url", "http://localhost:11434")
 AUTH_REQUIRED = API_CONFIG.get("auth_required", False)
 security = HTTPBearer(auto_error=False)
 
-# FastAPI app
 app = FastAPI(
     title="Ollama-Baidu Search API",
-    description="Enhanced OpenAI-compatible API with Baidu search integration",
+    description="OpenAI-compatible API with Baidu search integration",
     version="1.0.0",
 )
 
@@ -79,10 +78,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # Pydantic models
 class ChatMessage(BaseModel):
     role: str
     content: str
+
 
 class ChatCompletionRequest(BaseModel):
     model: str
@@ -93,21 +94,26 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: Optional[int] = None
     stream: bool = True
 
+
 class ModelInfo(BaseModel):
     id: str
     object: str = "model"
     created: int = Field(default_factory=lambda: int(time.time()))
     owned_by: str = "ollama"
 
+
 class ModelsResponse(BaseModel):
     object: str = "list"
     data: List[ModelInfo]
 
-def verify_api_key(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> str:
+
+def verify_api_key(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> str:
     """Verify API key."""
     if not AUTH_REQUIRED:
         return "no-auth"
-    
+
     if not credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -115,7 +121,9 @@ def verify_api_key(credentials: Optional[HTTPAuthorizationCredentials] = Depends
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    if api_key_manager and not api_key_manager.validate_api_key(credentials.credentials):
+    if api_key_manager and not api_key_manager.validate_api_key(
+        credentials.credentials
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key",
@@ -130,7 +138,7 @@ async def list_models(_: str = Depends(verify_api_key)):
     """List available models."""
     if models_handler:
         return await models_handler.create_models_response()
-    
+
     # Fallback
     return ModelsResponse(
         data=[
@@ -142,8 +150,7 @@ async def list_models(_: str = Depends(verify_api_key)):
 
 @app.post("/v1/chat/completions")
 async def create_chat_completion(
-    request: ChatCompletionRequest, 
-    _: str = Depends(verify_api_key)
+    request: ChatCompletionRequest, _: str = Depends(verify_api_key)
 ):
     """Create chat completion."""
     if not chat_handler:
@@ -153,20 +160,26 @@ async def create_chat_completion(
             "object": "chat.completion",
             "created": int(time.time()),
             "model": request.model,
-            "choices": [{
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": "Fallback response - full functionality unavailable.",
-                },
-                "finish_reason": "stop",
-            }],
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "Fallback response - full functionality unavailable.",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
             "usage": {"prompt_tokens": 10, "completion_tokens": 15, "total_tokens": 25},
         }
-    
+
     # Validate model
     if not await chat_handler.validate_model(request.model):
-        available_models = await models_handler.get_available_models() if models_handler else ["llama3"]
+        available_models = (
+            await models_handler.get_available_models()
+            if models_handler
+            else ["llama3"]
+        )
         raise HTTPException(
             status_code=400,
             detail=f"Model '{request.model}' not found. Available: {', '.join(available_models)}",
@@ -189,9 +202,13 @@ async def create_chat_completion(
         if result.get("type") == "stream_with_search":
             return StreamingResponse(
                 chat_handler.create_streaming_chunks_with_search(
-                    result["model"], result["query"], result["completion_id"],
-                    result.get("temperature"), result.get("top_p"), result.get("top_k"),
-                    result.get("max_tokens")
+                    result["model"],
+                    result["query"],
+                    result["completion_id"],
+                    result.get("temperature"),
+                    result.get("top_p"),
+                    result.get("top_k"),
+                    result.get("max_tokens"),
                 ),
                 media_type="text/event-stream",
                 headers={
@@ -206,18 +223,19 @@ async def create_chat_completion(
                 ),
                 media_type="text/event-stream",
                 headers={
-                    "Cache-Control": "no-cache", 
+                    "Cache-Control": "no-cache",
                     "Connection": "keep-alive",
                 },
             )
-    
+
     return result
+
 
 @app.get("/health")
 async def health_check() -> Dict[str, Any]:
     """Health check."""
     ollama_status = await check_ollama_status(OLLAMA_BASE_URL)
-    
+
     health_info: Dict[str, Any] = {
         "status": "healthy" if ollama_status else "degraded",
         "ollama_available": ollama_status,
@@ -230,7 +248,7 @@ async def health_check() -> Dict[str, Any]:
         },
         "timestamp": datetime.now().isoformat(),
     }
-    
+
     if models_handler:
         try:
             models = await models_handler.get_available_models()
@@ -238,7 +256,7 @@ async def health_check() -> Dict[str, Any]:
         except (AttributeError, ConnectionError, TimeoutError) as ex:
             logger.warning(f"Failed to get models count: {ex}")
             health_info["models_count"] = 0
-    
+
     return health_info
 
 
@@ -259,22 +277,28 @@ async def root():
         "status": "ready",
     }
 
+
 # Error handlers
 @app.exception_handler(HTTPException)
 async def http_exception_handler(_, exc):
     return JSONResponse(
         status_code=exc.status_code,
-        content={"error": {"message": exc.detail, "type": "http_error"}}
+        content={"error": {"message": exc.detail, "type": "http_error"}},
     )
+
 
 @app.exception_handler(Exception)
 async def general_exception_handler(_, exc):
     logger.error(f"Unhandled error: {exc}")
     return JSONResponse(
         status_code=500,
-        content={"error": {"message": "Internal server error", "type": "internal_error"}}
+        content={
+            "error": {"message": "Internal server error", "type": "internal_error"}
+        },
     )
+
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

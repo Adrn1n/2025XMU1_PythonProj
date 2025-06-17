@@ -1,6 +1,6 @@
 """
 Scraper testing module for Baidu search functionality.
-This module provides a comprehensive interface for testing the BaiduScraper.
+Provides comprehensive testing interface for BaiduScraper with various options.
 """
 
 import argparse
@@ -10,32 +10,31 @@ import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
 import aiohttp
 
-# Add the parent directory to sys.path to allow importing from sibling packages
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Import from project modules
-from scrapers.baidu_scraper import BaiduScraper
-from utils.logging_utils import get_log_level_from_string, setup_logger
-from utils.file_utils import save_search_results
-
-# Import configuration
 from config import (
-    CONFIG,
-    HEADERS,
-    PROXY_LIST,
-    LOG_FILE,
-    DEFAULT_CONFIG,
     CACHE_DIR,
+    CONFIG,
+    DEFAULT_CONFIG,
+    HEADERS,
+    LOG_FILE,
+    PROXY_LIST,
+    get_module_logger,
 )
+from scrapers.baidu_scraper import BaiduScraper
+from utils.file_utils import save_search_results
+from utils.logging_utils import get_log_level_from_string, setup_logger
+
+logger = get_module_logger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command line arguments."""
+    """Parse and validate command line arguments."""
     parser = argparse.ArgumentParser(description="Baidu Scraper Testing Tool")
 
-    # Basic arguments
     parser.add_argument(
         "query", nargs="?", help="Search query (if not specified, you'll be prompted)"
     )
@@ -43,7 +42,6 @@ def parse_args() -> argparse.Namespace:
         "-i", "--interactive", action="store_true", help="Run in interactive mode"
     )
 
-    # Search configuration
     search_group = parser.add_argument_group("Search Options")
     search_group.add_argument(
         "-p",
@@ -219,11 +217,11 @@ async def run_search(
     pages: int,
     cache_file: Optional[Path],
     use_cache: bool,
-    logger: logging.Logger,
+    search_logger: logging.Logger,
 ) -> List[Dict[str, Any]]:
     """Execute the search operation using the scraper instance."""
     try:
-        logger.info(f"Starting search for '{query}', pages: {pages}")
+        search_logger.info(f"Starting search for '{query}', pages: {pages}")
 
         # Use the scrape method
         results = await scraper.scrape(
@@ -233,13 +231,13 @@ async def run_search(
             use_cache=use_cache,
         )
 
-        logger.info(f"Search completed, retrieved {len(results)} results")
+        search_logger.info(f"Search completed, retrieved {len(results)} results")
         return results
     except KeyboardInterrupt:
-        logger.warning("Search interrupted by user")
+        search_logger.warning("Search interrupted by user")
         return []
     except Exception as search_error:
-        logger.error(f"Error occurred during search: {str(search_error)}")
+        search_logger.error(f"Error occurred during search: {str(search_error)}")
         return []
 
 
@@ -345,14 +343,14 @@ async def main():
             # Ensure the log directory exists before setting up the logger
             log_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-        logger = setup_logger(
+        test_logger = setup_logger(
             "baidu_scraper_test",  # Logger name
             get_log_level_from_string(args.log_level),
             log_file_path,
             log_to_console,
         )
 
-        logger.info("Baidu Scraper Test started")
+        test_logger.info("Baidu Scraper Test started")
 
         # Determine the path for the URL cache file
         cache_file = None
@@ -371,7 +369,7 @@ async def main():
         output_file = None
         if save_results:
             output_file = get_output_file(args, query)
-            logger.info(f"Search results will be saved to: {output_file}")
+            test_logger.info(f"Search results will be saved to: {output_file}")
 
         # Instantiate and configure the BaiduScraper
         scraper_config = get_scraper_config(args, log_to_console, log_file_path)
@@ -379,7 +377,7 @@ async def main():
 
         # Clear the URL cache if requested via command line argument
         if args.clear_cache:
-            logger.info("Clearing URL cache")
+            test_logger.info("Clearing URL cache")
             scraper.url_cache.clear()
 
         # Execute the search operation
@@ -390,28 +388,28 @@ async def main():
                 pages=args.pages,
                 cache_file=cache_file,
                 use_cache=not args.no_cache,
-                logger=logger,
+                search_logger=test_logger,
             )
         except aiohttp.ClientError as client_error:
-            logger.error(f"Network request error: {client_error}")
+            test_logger.error(f"Network request error: {client_error}")
             # Attempt to recover partial results from cache if available
             if not args.no_cache and cache_file and cache_file.exists():
-                logger.warning("Attempting to load partial results from cache...")
+                test_logger.warning("Attempting to load partial results from cache...")
                 # This would be implemented if needed
             results = []
         except Exception as request_error:
-            logger.error(
+            test_logger.error(
                 f"Unknown error occurred during search: {str(request_error)}",
                 exc_info=True,
             )
             results = []
 
         if not results:
-            logger.warning("No search results found")
+            test_logger.warning("No search results found")
             print("Warning: No search results found.")
             return 1
 
-        logger.info(f"Found {len(results)} search results")
+        test_logger.info(f"Found {len(results)} search results")
         print(f"Found {len(results)} search results.")
 
         # Print the first few results
@@ -432,44 +430,44 @@ async def main():
                 results=results,
                 file_path=output_file,
                 save_timestamp=True,  # Include timestamp in the saved file
-                logger=logger,
+                logger=test_logger,
             )
             if success:
-                logger.info(f"Search results saved to: {output_file}")
+                test_logger.info(f"Search results saved to: {output_file}")
                 print(f"Search results saved to: {output_file}")
             else:
-                logger.error("Failed to save search results")
+                test_logger.error("Failed to save search results")
                 print("Error: Failed to save search results.")
 
         # Output scraper and cache statistics
         stats = scraper.get_stats()
-        logger.info("Scraper statistics:")
-        logger.info(f" - Total requests: {stats.get('total', 0)}")
-        logger.info(f" - Successful requests: {stats.get('success', 0)}")
-        logger.info(f" - Failed requests: {stats.get('failed', 0)}")
+        test_logger.info("Scraper statistics:")
+        test_logger.info(f" - Total requests: {stats.get('total', 0)}")
+        test_logger.info(f" - Successful requests: {stats.get('success', 0)}")
+        test_logger.info(f" - Failed requests: {stats.get('failed', 0)}")
 
         success_rate = 0
         if stats.get("total", 0) > 0:
             success_rate = stats.get("success", 0) / stats.get("total", 1) * 100
-        logger.info(f" - Success rate: {success_rate:.2f}%")
+        test_logger.info(f" - Success rate: {success_rate:.2f}%")
 
         if "duration" in stats:
-            logger.info(f" - Duration: {stats.get('duration', 0):.2f} seconds")
+            test_logger.info(f" - Duration: {stats.get('duration', 0):.2f} seconds")
 
         if "cache" in stats:
             cache_stats = stats["cache"]
-            logger.info("Cache statistics:")
-            logger.info(
+            test_logger.info("Cache statistics:")
+            test_logger.info(
                 f" - Cache size: {cache_stats.get('size', 0)}/{cache_stats.get('max_size', 0)}"
             )
-            logger.info(f" - Cache hits: {cache_stats.get('hits', 0)}")
-            logger.info(f" - Cache misses: {cache_stats.get('misses', 0)}")
+            test_logger.info(f" - Cache hits: {cache_stats.get('hits', 0)}")
+            test_logger.info(f" - Cache misses: {cache_stats.get('misses', 0)}")
 
             # Avoid division by zero if no cache operations occurred
             total_ops = cache_stats.get("hits", 0) + cache_stats.get("misses", 0)
             if total_ops > 0:
                 hit_rate = cache_stats.get("hits", 0) / total_ops * 100
-                logger.info(f" - Cache hit rate: {hit_rate:.2f}%")
+                test_logger.info(f" - Cache hit rate: {hit_rate:.2f}%")
 
         # Print stats if debug is enabled
         if args.debug:
@@ -496,7 +494,7 @@ async def main():
                     debug_hit_rate = cache_stats.get("hits", 0) / debug_total_ops * 100
                     print(f"Cache hit rate: {debug_hit_rate:.2f}%")
 
-        logger.info("Baidu scraper test completed successfully")
+        test_logger.info("Baidu scraper test completed successfully")
         print("\nTest completed successfully!")
         return 0
 

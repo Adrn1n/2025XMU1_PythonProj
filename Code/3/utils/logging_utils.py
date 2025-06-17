@@ -1,7 +1,12 @@
+"""
+Logging utilities for project-wide standardized logging configuration.
+Provides centralized logging setup with module-specific log file routing.
+"""
+
 import logging
-from typing import List, Optional, Union, Dict
-from pathlib import Path
 import sys
+from pathlib import Path
+from typing import Dict, List, Optional, Union
 
 
 def setup_logger(
@@ -14,106 +19,78 @@ def setup_logger(
     propagate: bool = True,  # Changed default to True to allow log propagation
 ) -> logging.Logger:
     """
-    Configure and return a logger instance with specified handlers and formatting.
-
-    Avoids adding duplicate handlers if a logger with the same name already exists.
+    Configure and return a logger instance with handlers and formatting.
+    Prevents duplicate handler creation for existing loggers.
 
     Args:
-        name: The name for the logger.
-        log_level: The minimum logging level for this logger (e.g., logging.DEBUG, logging.INFO).
-        log_file: Optional path to a file where logs should be written.
-        log_to_console: If True, add a handler to output logs to the console (stdout).
-        log_format: The format string for log messages.
-        date_format: The format string for timestamps in log messages.
-        propagate: If True, allow messages to propagate to parent loggers.
+        name: Logger name identifier
+        log_level: Minimum logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        log_file: Optional path to log file
+        log_to_console: Whether to output logs to console
+        log_format: Format string for log messages
+        date_format: Format string for timestamps
+        propagate: Whether to propagate messages to parent loggers
 
     Returns:
-        The configured logging.Logger instance.
+        Configured Logger instance
     """
-    # Get the logger instance by name
     logger = logging.getLogger(name)
 
-    # Prevent adding handlers multiple times if the logger is already configured
     if logger.handlers:
-        # Only warn if this is the same logger being reconfigured
         if logger.name == name:
-            logger.debug(
-                f"Logger '{name}' already has handlers. Reusing existing logger."
-            )
+            logger.debug(f"Logger '{name}' already configured, reusing existing")
         return logger
 
-    # Set the logger's level. Handlers can have their own levels >= this level.
     logger.setLevel(log_level)
-    # Control propagation to ancestor loggers
     logger.propagate = propagate
 
-    # Create a formatter based on the provided formats
     formatter = logging.Formatter(log_format, date_format)
 
-    # Add console handler if requested
     if log_to_console:
-        console_handler = logging.StreamHandler(
-            sys.stdout
-        )  # Use stdout for console output
-        console_handler.setLevel(log_level)  # Set handler level
-        console_handler.setFormatter(formatter)  # Apply the formatter
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(log_level)
+        console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
 
-    # Add file handler if a log file path is provided
     if log_file:
-        # Ensure log_file is a Path object
         if isinstance(log_file, str):
             log_file = Path(log_file)
 
         try:
-            # Ensure the directory for the log file exists
             log_file.parent.mkdir(parents=True, exist_ok=True)
-
-            # Create a file handler
             file_handler = logging.FileHandler(log_file, encoding="utf-8")
-            file_handler.setLevel(log_level)  # Set handler level
-            file_handler.setFormatter(formatter)  # Apply the formatter
+            file_handler.setLevel(log_level)
+            file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
             logger.info(f"Logging to file: {log_file}")
         except (PermissionError, OSError) as e:
-            logger.error(
-                f"Failed to set up log file handler for {log_file}: {e}", exc_info=True
-            )
+            logger.error(f"Failed to setup file handler for {log_file}: {e}")
         except Exception as e:
-            # Log an error to the console (if available) if file handler setup fails
-            # Avoids crashing the application just because logging to file failed
-            logger.error(
-                f"Failed to set up log file handler for {log_file}: {e}", exc_info=True
-            )
-            # If console logging wasn't enabled initially, add a temporary one for this error
+            logger.error(f"Unexpected error setting up file handler: {e}")
             if not log_to_console:
-                temp_console_handler = logging.StreamHandler(sys.stderr)
-                temp_console_handler.setFormatter(formatter)
-                logger.addHandler(temp_console_handler)
-                logger.error(
-                    f"Failed to set up log file handler for {log_file}: {e}",
-                    exc_info=True,
-                )
-                logger.removeHandler(temp_console_handler)
+                temp_handler = logging.StreamHandler(sys.stderr)
+                temp_handler.setFormatter(formatter)
+                logger.addHandler(temp_handler)
+                logger.error(f"File handler setup failed for {log_file}: {e}")
+                logger.removeHandler(temp_handler)
 
     return logger
 
 
 def get_log_levels() -> List[str]:
-    """Return a list of standard log level names as strings."""
+    """Return list of standard log level names."""
     return ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
 def get_log_level_from_string(level_name: str) -> int:
     """
-    Convert a log level name (string) to its corresponding logging constant (integer).
-    Defaults to logging.INFO if the name is not recognized. Case-insensitive.
+    Convert log level name to logging constant.
 
     Args:
-        level_name: The string representation of the log level (e.g., "DEBUG", "info").
+        level_name: Log level name (case-insensitive)
 
     Returns:
-        The integer value of the log level (e.g., logging.DEBUG, logging.INFO).
+        Logging level constant, defaults to INFO if invalid
     """
     level_map = {
         "debug": logging.DEBUG,
@@ -122,7 +99,6 @@ def get_log_level_from_string(level_name: str) -> int:
         "error": logging.ERROR,
         "critical": logging.CRITICAL,
     }
-    # Use lower case for case-insensitive matching, default to INFO
     return level_map.get(level_name.lower(), logging.INFO)
 
 
@@ -130,24 +106,23 @@ def get_module_log_file(
     module_name: str, config_files: Optional[Dict[str, Path]] = None
 ) -> Optional[Path]:
     """
-    Get the appropriate log file path for a given module name.
+    Get appropriate log file path for a module.
 
     Args:
-        module_name: The name of the module (e.g., 'scrapers.baidu_scraper', 'ollama.ollama_integrate')
-        config_files: Dictionary of available log file paths from configuration
+        module_name: Module name or class name
+        config_files: Dictionary of available log file paths
 
     Returns:
-        Path to the appropriate log file, or None if no specific mapping found
+        Path to appropriate log file or None if not found
     """
     if not config_files:
         return None
 
-    # Module to log file mapping
     module_mappings = {
         # API modules
         "api": "api_log_file",
         "api.openai": "api_log_file",
-        "api.start_server": "api_log_file", 
+        "api.start_server": "api_log_file",
         "api.api_keys": "api_log_file",
         "openai": "api_log_file",
         "start_server": "api_log_file",
@@ -179,7 +154,7 @@ def get_module_log_file(
         # Main application
         "main": "main_log_file",
         "__main__": "main_log_file",
-        # Utils modules (fallback for other utils)
+        # Utils modules
         "utils": "utils_log_file",
         "file_utils": "utils_log_file",
         "url_utils": "utils_log_file",
@@ -196,7 +171,6 @@ def get_module_log_file(
         if key in module_name:
             return config_files.get(log_file_key)
 
-    # Default fallback - use main log file instead of scraper log file
     return config_files.get("main_log_file") or config_files.get("log_file")
 
 
@@ -207,26 +181,24 @@ def setup_module_logger(
     log_to_console: bool = True,
     log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     date_format: str = "%Y-%m-%d %H:%M:%S",
-    propagate: bool = False,  # Changed to False to prevent cross-contamination
+    propagate: bool = False,
 ) -> logging.Logger:
     """
-    Configure and return a logger instance with automatic log file selection based on module name.
+    Setup logger with automatic log file selection based on module name.
 
     Args:
-        name: The name for the logger (usually the module name).
-        log_level: The minimum logging level for this logger.
-        config_files: Dictionary of available log file paths from configuration.
-        log_to_console: If True, add a handler to output logs to the console.
-        log_format: The format string for log messages.
-        date_format: The format string for timestamps in log messages.
-        propagate: If True, allow messages to propagate to parent loggers.
+        name: Logger name (usually module name)
+        log_level: Minimum logging level
+        config_files: Dictionary of available log file paths
+        log_to_console: Whether to output to console
+        log_format: Format string for log messages
+        date_format: Format string for timestamps
+        propagate: Whether to propagate to parent loggers
 
     Returns:
-        The configured logging.Logger instance.
+        Configured Logger instance
     """
-    # Determine the appropriate log file for this module
     log_file = get_module_log_file(name, config_files)
-
     return setup_logger(
         name=name,
         log_level=log_level,
@@ -242,36 +214,31 @@ def reset_module_logger(
     name: str, config_files: Optional[Dict[str, Path]] = None
 ) -> logging.Logger:
     """
-    Reset and reconfigure an existing logger with correct module-specific log file.
+    Reset and reconfigure existing logger with correct log file.
 
     Args:
-        name: The name of the logger to reset.
-        config_files: Dictionary of available log file paths from configuration.
+        name: Logger name to reset
+        config_files: Dictionary of available log file paths
 
     Returns:
-        The reconfigured logging.Logger instance.
+        Reconfigured Logger instance
     """
-    # Get the existing logger
     logger = logging.getLogger(name)
 
-    # Remove all existing handlers
+    # Remove existing handlers
     for handler in logger.handlers[:]:
         handler.close()
         logger.removeHandler(handler)
 
-    # Clear any cached handlers
     logger.handlers.clear()
-
-    # Reconfigure with correct log file
     return setup_module_logger(name, config_files=config_files)
 
 
 def fix_existing_loggers():
-    """Fix any existing loggers that might be using wrong log files."""
+    """Fix existing loggers that may be using incorrect log files."""
     try:
         from config import files
 
-        # List of logger names that might need fixing
         loggers_to_fix = ["OllamaIntegrate", "BaiduScraper", "BaseScraper", "URLCache"]
 
         for logger_name in loggers_to_fix:
@@ -279,4 +246,4 @@ def fix_existing_loggers():
                 reset_module_logger(logger_name, files)
 
     except ImportError:
-        pass  # Config not available
+        pass

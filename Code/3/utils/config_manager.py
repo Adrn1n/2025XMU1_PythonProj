@@ -1,18 +1,16 @@
 """
-Optimized configuration manager for unified project configuration management.
-Eliminates redundancy with config.py and provides clean interfaces.
+Configuration manager for unified project configuration management.
+Provides centralized access to configuration settings and templates.
 """
 
-import logging
 import json
-from typing import Any, Dict, Optional, Union
-from pathlib import Path
+import logging
 from functools import lru_cache
+from pathlib import Path
+from typing import Any, Dict, Optional, Union
 
-# Create logger for this module (avoid circular import)
 logger = logging.getLogger(__name__)
 
-# Default configuration templates used if config files are missing
 DEFAULT_CONFIG_TEMPLATES = {
     "paths": {
         "config_dir": "config",
@@ -34,14 +32,7 @@ DEFAULT_CONFIG_TEMPLATES = {
         "cache_size": 1000,
     },
     "api": {
-        "default_api_key": "ollama-search-api-key-2025",
-        "api_keys": [
-            "ollama-search-api-key-2025",
-            "sk-ollama-baidu-search-2025",
-            "sk-local-ollama-api-key",
-            "test-api-key",
-        ],
-        "api_keys_file": "api/api_keys.txt",
+        "api_keys_file": "api_keys.txt",
         "auth_required": True,
         "cache_models": True,
         "models_cache_ttl": 300,
@@ -52,8 +43,8 @@ DEFAULT_CONFIG_TEMPLATES = {
             "api_search_pages": 5,
             "api_search_timeout": 5,
             "api_search_retries": 1,
-            "search_command_enabled": True,  # Enable \search{} command
-            "no_search_command_enabled": True,  # Enable \no_search command
+            "search_command_enabled": True,
+            "no_search_command_enabled": True,
         },
         "performance": {
             "max_concurrent_pages": 3,
@@ -61,7 +52,7 @@ DEFAULT_CONFIG_TEMPLATES = {
             "batch_size": 15,
             "connection_pool_size": 20,
             "chunk_size_words": 3,
-            "streaming_delay": 0.05
+            "streaming_delay": 0.05,
         },
         "server": {
             "host": "0.0.0.0",
@@ -70,7 +61,7 @@ DEFAULT_CONFIG_TEMPLATES = {
             "workers": 1,
             "log_level": "info",
             "access_log": True,
-            "keep_alive": 65
+            "keep_alive": 65,
         },
         "cors": {
             "allow_origins": ["*"],
@@ -82,8 +73,8 @@ DEFAULT_CONFIG_TEMPLATES = {
             "rate_limiting": False,
             "max_requests_per_minute": 60,
             "trusted_proxies": [],
-            "enable_api_versioning": True
-        }
+            "enable_api_versioning": True,
+        },
     },
     "ollama": {
         "base_url": "http://localhost:11434",
@@ -118,7 +109,6 @@ DEFAULT_CONFIG_TEMPLATES = {
     },
 }
 
-# Optimized headers template
 HEADERS_TEMPLATE = """GET / HTTP/1.1
 Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7
 Accept-Encoding: gzip, deflate, br, zstd
@@ -142,9 +132,7 @@ sec-ch-ua-platform: "Windows"
 
 
 class OptimizedConfigManager:
-    """
-    Optimized configuration manager with improved performance and caching.
-    """
+    """Configuration manager with performance optimization and caching."""
 
     def __init__(
         self, config_dir: Union[str, Path] = "config", create_if_missing: bool = True
@@ -161,18 +149,17 @@ class OptimizedConfigManager:
 
     @lru_cache(maxsize=128)
     def get_config_path(self, name: str) -> Path:
-        """Get configuration file path (cached)."""
+        """Get configuration file path with caching."""
         return self.config_dir / f"{name}.json"
 
     def config_exists(self, name: str) -> bool:
-        """Check if a configuration file exists."""
+        """Check if configuration file exists."""
         return self.get_config_path(name).exists()
 
     def load_config(
         self, name: str, default: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Load configuration with smart caching."""
-        # Return cached config if available
+        """Load configuration with caching support."""
         if name in self.config_cache:
             return self.config_cache[name]
 
@@ -202,7 +189,7 @@ class OptimizedConfigManager:
             return default or {}
 
     def get(self, name: str, key: str, default: Any = None) -> Any:
-        """Get a specific configuration value."""
+        """Get specific configuration value."""
         config = self.load_config(name)
         return config.get(key, default)
 

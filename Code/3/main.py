@@ -1,6 +1,6 @@
 """
-Optimized main application module for Baidu-Ollama integration.
-Provides a streamlined command-line interface using the refactored OllamaIntegrate class.
+Main application module for Baidu-Ollama integration.
+Provides command-line interface for search and LLM integration.
 """
 
 import argparse
@@ -10,27 +10,19 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
-# Add parent directory for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-# Import the optimized integration class
-from ollama.ollama_integrate import (
-    create_from_args,
-    show_usage_examples,
-)
-
-# Import configuration and logging utilities
 from config import OLLAMA_CONFIG, get_module_logger
+from ollama.ollama_integrate import create_from_args, show_usage_examples
 from utils.logging_utils import get_log_level_from_string
 
-# Setup module-specific logger
 logger = get_module_logger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command line arguments."""
+    """Parse and validate command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Baidu Search + Ollama LLM Integration (Optimized)",
+        description="Baidu Search + Ollama LLM Integration",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -40,7 +32,6 @@ Examples:
         """,
     )
 
-    # Basic arguments
     basic_group = parser.add_argument_group("Basic Options")
     basic_group.add_argument(
         "query",
@@ -60,7 +51,6 @@ Examples:
         help="Specific question to ask the LLM (if different from search query)",
     )
 
-    # Search configuration
     search_group = parser.add_argument_group("Search Options")
     search_group.add_argument(
         "-p",
@@ -90,7 +80,6 @@ Examples:
         help="Custom cache file path",
     )
 
-    # Ollama configuration
     ollama_group = parser.add_argument_group("Ollama Options")
     ollama_group.add_argument(
         "--ollama-url",
@@ -206,52 +195,52 @@ Examples:
 async def interactive_mode():
     """Run the application in interactive mode."""
     print("=== Baidu Search + Ollama LLM Integration ===")
-    print("欢迎使用百度搜索 + Ollama LLM 整合工具！")
-    print("请按照提示输入相关信息进行搜索和问答。")
-    print("输入 'quit', 'exit' 或 'q' 退出程序\n")
+    print("Welcome to Baidu Search + Ollama LLM integration tool!")
+    print("Please follow the prompts to enter information for search and Q&A.")
+    print("Enter 'quit', 'exit' or 'q' to exit the program\n")
 
     while True:
         try:
-            # 1. 询问搜索内容
-            query = input("请输入搜索内容: ").strip()
+            query = input("Enter search content: ").strip()
             if query.lower() in ["quit", "exit", "q"]:
-                print("👋 再见！")
+                print("Goodbye!")
                 break
 
             if not query:
-                print("❌ 搜索内容不能为空，请重新输入")
+                print("Search content cannot be empty, please re-enter")
                 continue
 
-            # 2. 询问搜索页数
-            pages = 1  # 默认值，防止异常时未定义
+            pages = 1
             while True:
-                pages_input = input("请输入搜索页数 (默认: 1): ").strip()
+                pages_input = input(
+                    "Enter number of pages to search (default: 1): "
+                ).strip()
                 if not pages_input:
                     pages = 1
                     break
                 try:
                     pages = int(pages_input)
                     if pages <= 0:
-                        print("⚠️ 页数必须大于0，请重新输入")
+                        print("Page count must be greater than 0, please re-enter")
                         continue
                     break
                 except ValueError:
-                    print("⚠️ 请输入有效的数字")
+                    print("Please enter a valid number")
                     continue
 
             # 3. 询问问题是否与搜索一致
             question_same = (
-                input("提问的问题是否与搜索内容一致？(y/[n]): ").strip().lower()
+                input("Is the question the same as search content? (y/[n]): ")
+                .strip()
+                .lower()
             )
             question = None
             if question_same != "y":
-                # 4. 如果不一致，询问提问问题
-                question = input("请输入要向AI提问的具体问题: ").strip()
+                question = input("Enter specific question for AI: ").strip()
                 if not question:
-                    print("⚠️ 将使用搜索内容作为提问问题")
+                    print("Will use search content as question")
                     question = None
 
-            # 创建参数对象，开启debug模式
             args = argparse.Namespace(
                 query=query,
                 question=question,
@@ -285,14 +274,14 @@ async def interactive_mode():
                 proxy=False,
             )
 
-            print(f"\n🔍 开始搜索: {query}")
-            print(f"📄 搜索页数: {pages}")
+            print(f"\nStarting search: {query}")
+            print(f"Pages to search: {pages}")
             if question:
-                print(f"❓ 提问问题: {question}")
+                print(f"Question: {question}")
             else:
-                print(f"❓ 提问问题: {query} (使用搜索内容)")
-            print("🐛 调试模式: 已开启")
-            print("💾 保存结果: 已启用\n")
+                print(f"Question: {query} (using search content)")
+            print("Debug mode: enabled")
+            print("Save results: enabled\n")
 
             # 创建integrator实例并运行
             integrator = create_from_args(args)
@@ -310,84 +299,78 @@ async def interactive_mode():
 
             # 如果不是流式输出，打印完整响应
             if not args.stream and response and "response" in response:
-                print(f"\n🤖 AI 回答:\n{response['response']}")
+                print(f"\nAI Response:\n{response['response']}")
 
             print("\n" + "=" * 60 + "\n")
 
         except (EOFError, KeyboardInterrupt):
-            print("\n\n👋 用户取消操作，再见！")
+            print("\n\nUser cancelled operation, goodbye!")
             break
         except Exception as e:
-            print(f"\n❌ 运行出错: {e}")
-            print("请重新输入搜索内容\n")
+            logger.error(f"Interactive mode error: {e}")
+            print(f"\nError occurred: {e}")
+            print("Please re-enter search content\n")
             continue
 
 
 async def single_run_mode(args: argparse.Namespace):
     """Run the application for a single query."""
     if not args.query:
-        print("❌ No query provided. Use -i for interactive mode or provide a query.")
+        print("No query provided. Use -i for interactive mode or provide a query.")
         show_usage_examples()
         return 1
 
     try:
-        # Create integrator
         integrator = create_from_args(args)
 
-        print(f"🔍 Searching for: {args.query}")
+        print(f"Searching for: {args.query}")
         if args.question:
-            print(f"❓ Question: {args.question}")
+            print(f"Question: {args.question}")
 
-        # Setup streaming callback if enabled
         async def stream_callback(chunk: Dict[str, Any]):
             if "response" in chunk and chunk["response"]:
                 print(chunk["response"], end="", flush=True)
 
-        # Run the integration
         response = await integrator.run(
             question=args.question,
             stream_callback=stream_callback if args.stream else None,
         )
 
-        # Print response if not streaming
         if not args.stream and response and "response" in response:
-            print(f"\n🤖 AI Response:\n{response['response']}")
+            print(f"\nAI Response:\n{response['response']}")
 
-        print("\n✅ Completed successfully!")
+        print("\nCompleted successfully!")
         return 0
 
     except Exception as e:
-        print(f"❌ Error: {e}")
+        logger.error(f"Single run mode error: {e}")
+        print(f"Error: {e}")
         return 1
 
 
 async def main():
-    """Main function."""
-    # 检查是否没有提供任何参数（直接运行）或使用了-i参数
+    """Main application entry point."""
     if len(sys.argv) == 1:
         await interactive_mode()
         return 0
 
     args = parse_args()
 
-    # 如果使用了-i参数，也进入交互模式
     if args.interactive:
         await interactive_mode()
         return 0
 
-    # Debug mode adjustments
     if args.debug:
         args.log_level = "DEBUG"
         if not args.no_save_results:
             args.save_results = True
 
-    # Configure root logger to ensure all logs are displayed
     log_level = get_log_level_from_string(args.log_level)
     logging.basicConfig(
         level=log_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[logging.StreamHandler(sys.stdout)],
-        force=True,  # Force reconfiguration
+        force=True,
     )
 
     try:
@@ -396,7 +379,8 @@ async def main():
         print("\n\nOperation cancelled by user.")
         return 1
     except Exception as e:
-        print(f"❌ Unexpected error: {e}")
+        logger.error(f"Unexpected error: {e}")
+        print(f"Unexpected error: {e}")
         if args.debug:
             import traceback
 

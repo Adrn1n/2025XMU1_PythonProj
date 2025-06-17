@@ -1,32 +1,30 @@
 """
-Streamlined configuration management for the project.
-Eliminates redundancy and provides unified configuration access.
+Centralized configuration management for the project.
+Provides unified access to all configuration settings and logging setup.
 """
 
-from typing import List, Dict, Optional, Any
 import logging
-import re
 import random
-from pathlib import Path
+import re
 from functools import lru_cache
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from utils.config_manager import (
     OptimizedConfigManager as ConfigManager,
     DEFAULT_CONFIG_TEMPLATES,
 )
 
-# Create a logger for this module
 logger = logging.getLogger(__name__)
 
 
 class OptimizedProjectConfig:
-    """Optimized centralized configuration management for the project."""
+    """Centralized configuration management with singleton pattern."""
 
     _instance = None
     _initialized = False
 
     def __new__(cls):
-        """Singleton pattern to avoid multiple config loads."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
@@ -38,7 +36,6 @@ class OptimizedProjectConfig:
         self.config_manager = ConfigManager()
         self.config_manager.ensure_default_configs()
 
-        # Load all configurations once
         self._configs = {
             name: self.config_manager.load_config(name, template)
             for name, template in DEFAULT_CONFIG_TEMPLATES.items()
@@ -49,12 +46,10 @@ class OptimizedProjectConfig:
         self._initialized = True
 
     def _setup_paths(self):
-        """Setup and ensure all paths exist."""
-        # Convert path strings to Path objects
+        """Setup and ensure all required paths exist."""
         self.paths = {key: Path(value) for key, value in self._configs["paths"].items()}
         self.files = {}
 
-        # Resolve file paths efficiently
         for key, value in self._configs["files"].items():
             base_path = Path(value)
             if not base_path.is_absolute() and key.endswith("_file"):

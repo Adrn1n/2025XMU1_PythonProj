@@ -1,24 +1,29 @@
-from urllib.parse import urljoin, urlparse
-import aiohttp
+"""
+URL utilities for validation, normalization, and batch fetching.
+Provides functions for handling URLs with proxy support and caching.
+"""
+
 import asyncio
-from typing import Dict, List, Optional
+import aiohttp
 import logging
 import random
+from typing import Dict, List, Optional
+from urllib.parse import urljoin, urlparse
 
 
 def _filter_valid_proxies(
     proxy_list: List[str], logger: Optional[logging.Logger] = None, context: str = ""
 ) -> List[str]:
     """
-    Filter out invalid proxies that might be comments or empty lines.
+    Filter out invalid proxies from proxy list.
 
     Args:
-        proxy_list: List of proxy URLs to filter.
-        logger: Optional logger instance.
-        context: Optional context string for logging (e.g., "Batch fetch").
+        proxy_list: List of proxy URLs to filter
+        logger: Optional logger instance
+        context: Optional context string for logging
 
     Returns:
-        List of valid proxy URLs.
+        List of valid proxy URLs
     """
     if not proxy_list:
         return []
@@ -32,67 +37,59 @@ def _filter_valid_proxies(
     if logger and len(valid_proxies) != len(proxy_list):
         context_prefix = f"{context} - " if context else ""
         logger.warning(
-            f"[URL_UTILS]: {context_prefix}Filtered out {len(proxy_list) - len(valid_proxies)} invalid proxies"
+            f"Filtered out {len(proxy_list) - len(valid_proxies)} invalid proxies {context_prefix}"
         )
 
     return valid_proxies
 
 
 def is_valid_url(url: str) -> bool:
-    """Check if a string represents a valid absolute URL (with scheme and netloc)."""
+    """Check if string represents valid absolute URL with scheme and netloc."""
     if not url:
         return False
     try:
         result = urlparse(url)
-        # A valid URL must have both a scheme (http, https) and a network location (domain)
         return all([result.scheme, result.netloc])
     except (ValueError, TypeError):
-        # Handle potential errors during parsing
         return False
 
 
 def fix_url(url: str, base: str) -> str:
     """
-    Attempt to fix potentially incomplete URLs by joining them with a base URL.
-    Useful for converting relative paths (e.g., '/path/to/page') to absolute URLs.
+    Fix potentially incomplete URLs by joining with base URL.
+    Converts relative paths to absolute URLs.
     """
     if not url:
-        return ""  # Return empty string if input URL is empty
+        return ""
 
-    # The base URL must be valid for joining to work correctly
     if not is_valid_url(base):
-        raise ValueError(f"Invalid base URL provided for fixing: {base}")
+        raise ValueError(f"Invalid base URL provided: {base}")
 
-    # If the URL doesn't already start with a scheme, assume it's relative or scheme-less
     if not url.startswith(("http://", "https://")):
         try:
-            # urljoin handles joining base URL and relative paths correctly
             return urljoin(base, url)
         except (ValueError, TypeError):
-            # If joining fails for some reason, return the original URL
             return url
 
-    # If the URL already has a scheme, return it as is
     return url
 
 
 def normalize_url(url: str, base: str, strip_params: bool = False) -> str:
     """
-    Normalize a URL to a standard format.
-    - Converts scheme and domain to lowercase.
-    - Removes 'www.' prefix.
-    - Ensures a path exists (at least '/').
-    - Removes trailing slashes from the path.
-    - Optionally removes query parameters.
-    - Fixes relative URLs using the base URL.
+    Normalize URL to standard format.
+
+    - Converts scheme and domain to lowercase
+    - Removes 'www.' prefix
+    - Ensures path exists (at least '/')
+    - Removes trailing slashes from path
+    - Optionally removes query parameters
+    - Fixes relative URLs using base URL
     """
-    if not url or isinstance(url, Exception):  # Handle empty or exceptional input
+    if not url or isinstance(url, Exception):
         return ""
 
-    # If the URL isn't valid, try fixing it first using the base URL
     if not is_valid_url(url):
         url = fix_url(url, base)
-        # If fixing still results in an invalid URL, return it as is
         if not is_valid_url(url):
             return url
 
@@ -349,38 +346,42 @@ async def batch_fetch_real_urls(
     batch_size: int = 10,
 ) -> List[str]:
     """
-    Fetch real URLs for a list of links in batches using asyncio.gather.
+    Fetch real URLs for a list of links in batches using asyncio.
 
     Args:
-        session: Shared aiohttp client session.
-        urls: List of URLs to resolve.
-        headers: HTTP headers for requests.
-        proxy_list: List of proxy URLs.
-        base: Base URL for fixing relative links.
-        max_semaphore: Semaphore controlling overall concurrency for fetch_real_url calls.
-        timeout: Timeout for individual requests within fetch_real_url.
-        retries: Retries for individual requests within fetch_real_url.
-        min_sleep: Minimum delay used within fetch_real_url.
-        max_sleep: Maximum delay used within fetch_real_url.
-        max_redirects: Max redirects allowed by fetch_real_url.
-        logger: Optional logger instance.
-        cache: Optional URL cache dictionary passed to fetch_real_url.
-        batch_size: Number of URLs to process concurrently in each batch.
+        session: Shared aiohttp client session
+        urls: List of URLs to resolve
+        headers: HTTP headers for requests
+        proxy_list: List of proxy URLs
+        base: Base URL for fixing relative links
+        max_semaphore: Semaphore controlling overall concurrency
+        timeout: Timeout for individual requests
+        retries: Retries for individual requests
+        min_sleep: Minimum delay between requests
+        max_sleep: Maximum delay between requests
+        max_redirects: Maximum redirects allowed
+        logger: Optional logger instance
+        cache: Optional URL cache dictionary
+        batch_size: Number of URLs to process concurrently per batch
 
     Returns:
-        A list containing the resolved URL for each corresponding input URL.
-        Order is preserved. Exceptions during resolution are returned as is in the list.
+        List of resolved URLs with order preserved
     """
-    # Prepare headers (e.g., remove cookies if desired for resolution)
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    logger.debug(f"Starting batch URL resolution for {len(urls)} URLs")
+
     request_headers = headers.copy()
     if "Cookie" in request_headers:
         del request_headers["Cookie"]
 
-    # Filter out invalid proxies that might be comments or empty lines
     valid_proxies = _filter_valid_proxies(proxy_list, logger, context="Batch fetch")
 
     all_results = []
     num_batches = (len(urls) + batch_size - 1) // batch_size
+
+    logger.info(f"Processing {len(urls)} URLs in {num_batches} batches of {batch_size}")
 
     # Process URLs in batches
     for i in range(0, len(urls), batch_size):

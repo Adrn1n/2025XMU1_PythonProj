@@ -1,24 +1,29 @@
-from typing import Any, Dict, List, Optional, Union
-import logging
-from pathlib import Path
-import aiohttp
+"""
+Base web scraper providing common functionality for web scraping tasks.
+Includes request handling, proxy support, caching, and rate limiting.
+"""
+
 import asyncio
+import aiohttp
+import logging
 import random
 import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 from utils.cache import URLCache
 from utils.logging_utils import setup_logger, setup_module_logger
 
 
 class BaseScraper:
-    """Provides common functionalities for web scraping tasks."""
+    """Base scraper providing common web scraping functionality."""
 
     def __init__(
         self,
         headers: Dict[str, str],
         proxies: List[str] = None,
         use_proxy: bool = False,
-        max_concurrent_pages: int = 5,  # Note: Primarily used by subclasses like BaiduScraper
+        max_concurrent_pages: int = 5,
         max_semaphore: int = 25,
         batch_size: int = 25,
         timeout: int = 3,
@@ -27,42 +32,37 @@ class BaseScraper:
         max_sleep: float = 0.3,
         max_redirects: int = 5,
         cache_size: int = 1000,
-        cache_ttl: int = 24
-        * 60
-        * 60,  # Cache Time-To-Live in seconds (default: 24 hours)
+        cache_ttl: int = 24 * 60 * 60,
         enable_logging: bool = False,
         log_to_console: bool = True,
         log_level: int = logging.INFO,
         log_file: Optional[Union[str, Path]] = None,
     ):
         """
-        Initialize the base scraper.
+        Initialize base scraper with configuration options.
 
         Args:
-            headers: Default HTTP headers for requests.
-            proxies: List of proxy server URLs (e.g., 'http://user:pass@host:port').
-            use_proxy: Whether to use proxies from the list for requests.
-            max_concurrent_pages: Max pages to scrape concurrently (informational for subclasses).
-            max_semaphore: Global limit for concurrent network requests managed by this instance.
-            batch_size: Default size for batch processing operations (e.g., URL resolution).
-            timeout: Default request timeout in seconds.
-            retries: Default number of retry attempts for failed requests.
-            min_sleep: Minimum random delay (seconds) before making a request.
-            max_sleep: Maximum random delay (seconds) before making a request.
-            max_redirects: Default maximum number of redirects to follow.
-            cache_size: Maximum number of entries in the URL cache.
-            cache_ttl: Lifetime of entries in the URL cache (seconds).
-            enable_logging: If True, set up a logger for this scraper instance.
-            log_to_console: If logging is enabled, whether to output logs to the console.
-            log_level: Logging level (e.g., logging.INFO, logging.DEBUG).
-            log_file: Path to the log file if logging to file is desired.
+            headers: Default HTTP headers for requests
+            proxies: List of proxy server URLs
+            use_proxy: Whether to use proxies for requests
+            max_concurrent_pages: Maximum pages to scrape concurrently
+            max_semaphore: Global limit for concurrent network requests
+            batch_size: Default batch size for processing operations
+            timeout: Default request timeout in seconds
+            retries: Default number of retry attempts
+            max_sleep: Maximum random delay before requests
+            max_redirects: Maximum number of redirects to follow
+            cache_size: Maximum entries in URL cache
+            cache_ttl: Cache entry lifetime in seconds
+            enable_logging: Whether to set up logger for this instance
+            log_to_console: Whether to output logs to console
+            log_level: Logging level
+            log_file: Path to log file if desired
         """
         self.headers = headers
         self.proxies = proxies or []
         self.use_proxy = use_proxy
-        self.max_concurrent_pages = (
-            max_concurrent_pages  # Stored but primarily used by subclasses
-        )
+        self.max_concurrent_pages = max_concurrent_pages
         self.max_semaphore = max_semaphore
         self.batch_size = batch_size
         self.timeout = timeout
@@ -70,30 +70,25 @@ class BaseScraper:
         self.min_sleep = min_sleep
         self.max_sleep = max_sleep
         self.max_redirects = max_redirects
-        # Initialize the URL cache
         self.url_cache = URLCache(max_size=cache_size, ttl=cache_ttl)
         self.logger = None
 
-        # Initialize an asyncio Semaphore to limit concurrent requests
         self.semaphore = asyncio.Semaphore(max_semaphore)
 
-        # Initialize dictionary to store request statistics
         self.stats: Dict[str, Any] = {
-            "total": 0,  # Total requests initiated
-            "success": 0,  # Successful requests (status 200)
-            "failed": 0,  # Failed requests (non-200 status or exceptions after retries)
-            "start": None,  # Timestamp of the first request
-            "end": None,  # Timestamp of the last successful request
+            "total": 0,
+            "success": 0,
+            "failed": 0,
+            "start": None,
+            "end": None,
         }
 
-        # Set up logging if enabled
         if enable_logging:
-            # Try to get config files for module-specific logging
             try:
                 from config import files
 
                 self.logger = setup_module_logger(
-                    self.__class__.__name__,  # Use the class name as the logger name
+                    self.__class__.__name__,
                     log_level,
                     files,
                     log_to_console,

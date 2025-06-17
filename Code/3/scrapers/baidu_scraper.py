@@ -1,11 +1,16 @@
-from typing import Any, Dict, List, Optional, Tuple, Union
+"""
+Baidu search results scraper with advertisement filtering and URL resolution.
+Provides specialized extraction methods for Baidu search result pages.
+"""
+
 import asyncio
 import aiohttp
+import logging
+import random
+import time
 from bs4 import BeautifulSoup
 from pathlib import Path
-import time
-import random
-import logging
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from scrapers.base_scraper import BaseScraper
 from utils.url_utils import batch_fetch_real_urls
@@ -14,40 +19,37 @@ from utils.url_utils import batch_fetch_real_urls
 class BaiduScraper(BaseScraper):
     """Scraper specifically designed for Baidu search result pages."""
 
-    # CSS selectors used to extract specific elements from Baidu's HTML structure.
-    # These are based on observed patterns and may need updates if Baidu changes its layout.
+    # CSS selectors for extracting elements from Baidu's HTML structure
     TITLE_SELECTORS = [
         "h3[class*='title']",
         "h3[class*='t']",
-    ]  # Selectors for the main result title/link
-    CONTENT_SELECTORS = [  # Selectors for the main result summary/description
+    ]
+    CONTENT_SELECTORS = [
         "div[class*='desc']",
         "div[class*='text']",
         "span[class*='content-right']",
         "span[class*='text']",
     ]
-    SOURCE_SELECTORS = (
-        [  # Selectors for the source URL or name displayed below the result
-            "div[class*='showurl'], div[class*='source-text']",
-            "span[class*='showurl'], span[class*='source-text'], span.c-color-gray",
-        ]
-    )
+    SOURCE_SELECTORS = [
+        "div[class*='showurl'], div[class*='source-text']",
+        "span[class*='showurl'], span[class*='source-text'], span.c-color-gray",
+    ]
     TIME_SELECTORS = [
         "span[class*='time']",
         "span.c-color-gray2",
         "span.n2n9e2q",
-    ]  # Selectors for the timestamp
-    RELATED_CONTENT_SELECTORS = [  # Selectors for content within related/sub-links
+    ]
+    RELATED_CONTENT_SELECTORS = [
         "div[class*=text], div[class*=abs], div[class*=desc], div[class*=content]",
         "p[class*=text], p[class*=desc], p[class*=content]",
         "span[class*=text], span[class*=desc], span[class*=content], span[class*=clamp]",
     ]
-    RELATED_SOURCE_SELECTORS = [  # Selectors for source within related/sub-links
+    RELATED_SOURCE_SELECTORS = [
         "span[class*=small], span[class*=showurl], span[class*=source-text], span[class*=site-name]",
         "div[class*=source-text], div[class*=showurl], div[class*=small]",
     ]
 
-    # Constants used for identifying advertisement results
+    # Advertisement detection patterns
     AD_STYLE_KEYWORDS = ["!important"]
     AD_CLASS_KEYWORDS = ["tuiguang"]
     AD_TAG_SELECTORS = ["[class*='tuiguang']"]
@@ -73,7 +75,29 @@ class BaiduScraper(BaseScraper):
         log_level: int = logging.INFO,
         log_file: Optional[Union[str, Path]] = None,
     ):
-        """Initialize the BaiduScraper."""
+        """
+        Initialize BaiduScraper with configuration options.
+
+        Args:
+            headers: HTTP headers for requests
+            proxies: List of proxy servers
+            filter_ads: Whether to filter advertisement results
+            use_proxy: Whether to use proxy servers
+            max_concurrent_pages: Maximum pages to scrape concurrently
+            max_semaphore: Global request semaphore limit
+            batch_size: Batch size for URL processing
+            timeout: Request timeout in seconds
+            retries: Number of retry attempts
+            min_sleep: Minimum delay between requests
+            max_sleep: Maximum delay between requests
+            max_redirects: Maximum redirects to follow
+            cache_size: Maximum cache entries
+            cache_ttl: Cache time-to-live in seconds
+            enable_logging: Whether to enable logging
+            log_to_console: Whether to log to console
+            log_level: Logging level
+            log_file: Optional log file path
+        """
         super().__init__(
             headers=headers,
             proxies=proxies,
@@ -92,10 +116,8 @@ class BaiduScraper(BaseScraper):
             log_level=log_level,
             log_file=log_file,
         )
-        self.filter_ads = filter_ads  # Flag to control advertisement filtering
-        self.max_concurrent_pages = (
-            max_concurrent_pages  # Max pages to scrape concurrently
-        )
+        self.filter_ads = filter_ads
+        self.max_concurrent_pages = max_concurrent_pages
 
     def extract_main_title_and_link(self, result) -> Tuple[str, str]:
         """Extract the main title text and link URL from a single search result block."""

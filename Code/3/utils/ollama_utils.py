@@ -1,13 +1,13 @@
 """
 Utility functions for interacting with Ollama API.
-This module provides a consistent interface for Ollama model operations.
+Provides consistent interface for Ollama model operations.
 """
 
-import json
-import random
-import logging
 import aiohttp
-from typing import Any, Dict, List, Optional, Callable
+import json
+import logging
+import random
+from typing import Any, Callable, Dict, List, Optional
 
 
 async def list_ollama_models(
@@ -19,17 +19,20 @@ async def list_ollama_models(
     List available Ollama models by querying the API.
 
     Args:
-        base_url: Base URL for Ollama API.
-        timeout: Timeout for the API request in seconds.
-        logger: Optional logger for error reporting.
+        base_url: Base URL for Ollama API
+        timeout: Timeout for API request in seconds
+        logger: Optional logger for error reporting
 
     Returns:
-        List of model names available on the Ollama server.
+        List of model names available on Ollama server
     """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
     url = f"{base_url}/api/tags"
+    logger.debug(f"Fetching models from {url}")
 
     try:
-        # Create a timeout for connecting to the API
         client_timeout = aiohttp.ClientTimeout(
             total=timeout,
             connect=timeout,
@@ -42,15 +45,16 @@ async def list_ollama_models(
                 if response.status == 200:
                     data = await response.json()
                     model_names = [model["name"] for model in data.get("models", [])]
+                    logger.info(f"Found {len(model_names)} Ollama models")
                     return model_names
                 else:
                     error_text = await response.text()
-                    if logger:
-                        logger.error(f"Failed to list Ollama models: {error_text}")
+                    logger.error(
+                        f"Failed to list Ollama models: HTTP {response.status} - {error_text}"
+                    )
                     return []
     except Exception as e:
-        if logger:
-            logger.error(f"Error connecting to Ollama API: {str(e)}")
+        logger.error(f"Error connecting to Ollama API: {e}")
         return []
 
 
@@ -61,15 +65,17 @@ def interactive_model_selection(
     Prompt user to select an Ollama model from available options.
 
     Args:
-        models: List of available model names.
-        logger: Optional logger for tracking selection.
+        models: List of available model names
+        logger: Optional logger for tracking selection
 
     Returns:
-        Selected model name or None if no selection was made.
+        Selected model name or None if no selection was made
     """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
     if not models:
-        if logger:
-            logger.warning("No Ollama models available")
+        logger.warning("No Ollama models available")
         print("No Ollama models available. Is Ollama running?")
         return None
 
@@ -82,7 +88,6 @@ def interactive_model_selection(
         try:
             choice = input("\nSelect a model (number or name): ").strip()
 
-            # Check if input is a number
             if choice.isdigit():
                 index = int(choice) - 1
                 if 0 <= index < len(models):
@@ -90,7 +95,6 @@ def interactive_model_selection(
                     break
                 else:
                     print(f"Please enter a number between 1 and {len(models)}")
-            # Check if input is a model name
             elif choice in models:
                 selected_model = choice
                 break

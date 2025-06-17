@@ -1,9 +1,14 @@
+"""
+File I/O utilities with async support and JSON serialization.
+Provides safe file operations with backup and error handling.
+"""
+
 import aiofiles
 import json
-import time
 import logging
-from typing import Any, Dict, List, Optional, Union
+import time
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 
 async def write_to_file(
@@ -14,18 +19,17 @@ async def write_to_file(
     logger: Optional[logging.Logger] = None,
 ) -> bool:
     """
-    Asynchronously write data to a file. Supports JSON serialization for dicts/lists.
-    Optionally creates a timestamped backup of the existing file before writing.
+    Write data to file asynchronously with optional backup.
 
     Args:
-        data: The data to write (can be dict, list, or string).
-        file_path: The path (string or Path object) to the target file.
-        backup: If True and the file exists, rename the existing file with a timestamp before writing.
-        log_level: Logging level for the internal logger if none is provided.
-        logger: Optional logger instance to use. If None, a default logger is created.
+        data: Data to write (dict, list, or string)
+        file_path: Target file path
+        backup: Whether to create timestamped backup
+        log_level: Logging level if no logger provided
+        logger: Optional logger instance
 
     Returns:
-        True if writing was successful, False otherwise.
+        True if successful, False otherwise
     """
     # Ensure file_path is a Path object
     if isinstance(file_path, str):

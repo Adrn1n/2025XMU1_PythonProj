@@ -1,39 +1,37 @@
 """
-Optimized Ollama integration with Baidu search results.
-This module provides a streamlined interface for using Ollama with Baidu search results.
+Ollama integration with Baidu search results.
+Provides streamlined interface for search-augmented LLM interactions.
 """
 
-import sys
-import time
+import argparse
 import asyncio
 import logging
-import argparse
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Union, Callable
+import sys
+import time
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Union
 
-# Add the parent directory to sys.path to allow importing from sibling packages
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Import from project modules
+from config import DEFAULT_CONFIG, LOG_FILE, OLLAMA_CONFIG, HEADERS, PROXY_LIST
 from scrapers.baidu_scraper import BaiduScraper
+from utils.file_utils import save_search_results
 from utils.logging_utils import (
-    setup_logger,
     get_log_level_from_string,
+    setup_logger,
     setup_module_logger,
 )
-from utils.file_utils import save_search_results
 from utils.ollama_utils import (
-    list_ollama_models,
-    interactive_model_selection,
-    generate_with_ollama,
-    format_search_results_for_ollama,
-    create_system_prompt,
-    create_full_prompt,
     check_ollama_status,
+    create_full_prompt,
+    create_system_prompt,
+    format_search_results_for_ollama,
+    generate_with_ollama,
     get_recommended_parameters,
+    interactive_model_selection,
+    list_ollama_models,
 )
-from config import HEADERS, PROXY_LIST, LOG_FILE, DEFAULT_CONFIG, OLLAMA_CONFIG
 
 
 @dataclass
@@ -101,21 +99,20 @@ class ScraperConfig:
 
 @dataclass
 class OutputConfig:
-    """Configuration for output operations."""
-
+    """Output and logging configuration."""
     output_file: Optional[str] = None
     save_results: bool = False
     debug: bool = False
     log_level: str = "INFO"
     log_to_console: bool = True
-    log_to_file: bool = True  # Changed to True to enable logging to file by default
+    log_to_file: bool = True
     log_file: Optional[Union[str, Path]] = None
 
 
 class OptimizedOllamaIntegrate:
     """
-    Optimized integration class for using Baidu search results as context for Ollama models.
-    Features performance improvements, better error handling, and streamlined configuration.
+    Integration class for Baidu search with Ollama LLM.
+    Provides search-augmented generation capabilities.
     """
 
     def __init__(
@@ -125,18 +122,14 @@ class OptimizedOllamaIntegrate:
         scraper_config: Optional[ScraperConfig] = None,
         output_config: Optional[OutputConfig] = None,
     ):
-        # Initialize configurations with defaults
         self.search_config = search_config or SearchConfig()
         self.ollama_config = ollama_config or OllamaConfig()
         self.scraper_config = scraper_config or ScraperConfig()
         self.output_config = output_config or OutputConfig()
 
-        # Initialize components
         self.logger = None
         self.scraper = None
         self.available_models = []
-
-        # Results storage
         self.search_results = []
         self.llm_response = None
 

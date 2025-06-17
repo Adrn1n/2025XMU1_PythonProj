@@ -1,45 +1,44 @@
-from typing import Any, Dict, Optional, Tuple
-from pathlib import Path
-import time
-import logging
+"""
+In-memory URL cache with TTL expiration and file persistence.
+Provides efficient caching for URL resolution with automatic cleanup.
+"""
+
 import json
+import logging
+import time
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
 
 
 class URLCache:
     """
-    In-memory cache for storing resolved URLs (original URL -> final URL).
-    Includes Time-To-Live (TTL) expiration and size limits with basic eviction.
-    Supports saving to and loading from a JSON file.
+    In-memory cache for URL resolution with TTL and size limits.
+    Supports persistence to JSON files for cache recovery.
     """
 
     def __init__(
         self,
         max_size: int = 1000,
-        ttl: int = 24 * 60 * 60,  # Default TTL: 24 hours in seconds
-        cleanup_threshold: int = 100,  # Trigger cleanup every N operations
+        ttl: int = 24 * 60 * 60,
+        cleanup_threshold: int = 100,
     ):
         """
-        Initialize the URL cache.
+        Initialize URL cache with size and time limits.
 
         Args:
-            max_size: Maximum number of entries the cache can hold.
-            ttl: Default time-to-live for cache entries in seconds.
-            cleanup_threshold: Number of get/set operations before checking for expired items.
+            max_size: Maximum number of cache entries
+            ttl: Time-to-live for entries in seconds
+            cleanup_threshold: Operations before cleanup check
         """
-        # Cache format: { original_url: (resolved_url, timestamp) }
         self.cache: Dict[str, Tuple[str, float]] = {}
         self.max_size = max_size
         self.ttl = ttl
         self.cleanup_threshold = cleanup_threshold
-        # Statistics tracking
         self.hits = 0
         self.misses = 0
-        self.operations_count = 0  # Counter to trigger periodic cleanup
+        self.operations_count = 0
 
-        # Setup module-specific logger (avoid circular import during class initialization)
         self.logger = logging.getLogger("URLCache")
-
-        # Try to upgrade to module-specific logger after initialization
         self._upgrade_logger()
 
     def _upgrade_logger(self):
@@ -49,10 +48,10 @@ class URLCache:
 
             self.logger = get_module_logger("URLCache")
         except ImportError:
-            pass  # Keep the default logger
+            pass
 
     def stats(self) -> Dict[str, Any]:
-        """Return current statistics about the cache."""
+        """Return current cache statistics."""
         total_reqs = self.hits + self.misses
         hit_rate = self.hits / total_reqs if total_reqs > 0 else 0
 
