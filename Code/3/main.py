@@ -66,8 +66,8 @@ Examples:
         "-p",
         "--pages",
         type=int,
-        default=1,
-        help="Number of pages to scrape (default: 1)",
+        default=5,
+        help="Number of pages to scrape (default: 5)",
     )
     search_group.add_argument(
         "--no-filter-ads",

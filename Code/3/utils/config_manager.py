@@ -19,6 +19,7 @@ DEFAULT_CONFIG_TEMPLATES = {
         "cache_dir": "cache",
         "log_dir": "logs",
         "data_dir": "data",
+        "api_dir": "api",
     },
     "scraper": {
         "filter_ads": True,
@@ -31,6 +32,70 @@ DEFAULT_CONFIG_TEMPLATES = {
         "max_sleep": 0.3,
         "max_redirects": 5,
         "cache_size": 1000,
+    },
+    "api": {
+        "default_api_key": "ollama-search-api-key-2025",
+        "api_keys": [
+            "ollama-search-api-key-2025",
+            "sk-ollama-baidu-search-2025",
+            "sk-local-ollama-api-key",
+            "test-api-key",
+        ],
+        "api_keys_file": "api/api_keys.txt",
+        "auth_required": True,
+        "cache_models": True,
+        "models_cache_ttl": 300,
+        "cache_api_keys": True,
+        "api_key_cache_ttl": 300,
+        "search": {
+            "use_search_for_api": True,
+            "api_search_pages": 5,
+            "api_search_timeout": 5,
+            "api_search_retries": 1,
+            "search_command_enabled": True,  # Enable \search{} command
+            "no_search_command_enabled": True,  # Enable \no_search command
+        },
+        "performance": {
+            "max_concurrent_pages": 3,
+            "max_semaphore": 15,
+            "batch_size": 15,
+            "connection_pool_size": 20,
+            "chunk_size_words": 3,
+            "streaming_delay": 0.05
+        },
+        "server": {
+            "host": "0.0.0.0",
+            "port": 8000,
+            "reload": False,
+            "workers": 1,
+            "log_level": "info",
+            "access_log": True,
+            "keep_alive": 65
+        },
+        "cors": {
+            "allow_origins": ["*"],
+            "allow_credentials": True,
+            "allow_methods": ["*"],
+            "allow_headers": ["*"],
+        },
+        "security": {
+            "rate_limiting": False,
+            "max_requests_per_minute": 60,
+            "trusted_proxies": [],
+            "enable_api_versioning": True
+        }
+    },
+    "ollama": {
+        "base_url": "http://localhost:11434",
+        "default_model": "llama3",
+        "timeout": 60,
+        "max_retries": 3,
+        "stream": True,
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "top_k": 40,
+        "context_size": 2048,
+        "max_tokens": None,
     },
     "logging": {
         "console_level": "INFO",
@@ -49,16 +114,7 @@ DEFAULT_CONFIG_TEMPLATES = {
         "config_log_file": "logs/config.log",
         "main_log_file": "logs/main.log",
         "utils_log_file": "logs/utils.log",
-    },
-    "ollama": {
-        "base_url": "http://localhost:11434",
-        "timeout": 60,
-        "stream": True,
-        "temperature": 0.7,
-        "top_p": 0.9,
-        "top_k": 40,
-        "default_model": "",
-        "system_prompt": "",
+        "api_log_file": "logs/api.log",
     },
 }
 

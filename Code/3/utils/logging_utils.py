@@ -144,6 +144,18 @@ def get_module_log_file(
 
     # Module to log file mapping
     module_mappings = {
+        # API modules
+        "api": "api_log_file",
+        "api.openai": "api_log_file",
+        "api.start_server": "api_log_file", 
+        "api.api_keys": "api_log_file",
+        "openai": "api_log_file",
+        "start_server": "api_log_file",
+        "api_keys": "api_log_file",
+        "api_core": "api_log_file",
+        "api_services": "api_log_file",
+        "api_handlers": "api_log_file",
+        "api_utils": "api_log_file",
         # Scraper modules
         "scrapers": "scraper_log_file",
         "baidu_scraper": "scraper_log_file",
@@ -184,8 +196,8 @@ def get_module_log_file(
         if key in module_name:
             return config_files.get(log_file_key)
 
-    # Default fallback
-    return config_files.get("log_file") or config_files.get("scraper_log_file")
+    # Default fallback - use main log file instead of scraper log file
+    return config_files.get("main_log_file") or config_files.get("log_file")
 
 
 def setup_module_logger(

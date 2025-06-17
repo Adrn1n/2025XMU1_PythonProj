@@ -199,6 +199,7 @@ class OptimizedProjectConfig:
             "scraper": self.get_raw_config("scraper"),
             "ollama": self.get_raw_config("ollama"),
             "logging": self.get_raw_config("logging"),
+            "api": self.get_raw_config("api"),
         }
 
 
@@ -223,15 +224,18 @@ CACHE_LOG_FILE = files.get("cache_log_file")
 CONFIG_LOG_FILE = files.get("config_log_file")
 MAIN_LOG_FILE = files.get("main_log_file")
 UTILS_LOG_FILE = files.get("utils_log_file")
+API_LOG_FILE = files.get("api_log_file")
 
 CACHE_DIR = paths.get("cache_dir")
 LOG_DIR = paths.get("log_dir")
+API_DIR = paths.get("api_dir")
 
 HEADERS = _config.headers
 PROXY_LIST = _config.proxy_list
 PROXY = _config.proxy
 DEFAULT_CONFIG = _config.get_raw_config("scraper")
 OLLAMA_CONFIG = _config.get_raw_config("ollama")
+API_CONFIG = _config.get_raw_config("api")
 
 # For backward compatibility, expose config manager
 config_manager = _config.config_manager
